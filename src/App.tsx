@@ -6,6 +6,7 @@ import { TimeWheel } from './components/TimeWheel';
 import { DetailPanel } from './components/DetailPanel';
 import { SideList } from './components/SideList';
 import { SurpriseButton } from './components/SurpriseButton';
+import { FloatingTimeControl } from './components/FloatingTimeControl';
 import { useAppStore } from './store/useAppStore';
 import { loadTerrazas, bbox } from './lib/terrazas';
 import { fetchBuildings } from './lib/buildings';
@@ -104,6 +105,7 @@ export function App() {
       {/* UI flotante */}
       <SurpriseButton />
       <SideList />
+      <FloatingTimeControl />
       <DetailPanel />
 
       <div className="fixed bottom-0 left-0 right-0 z-20 pb-3 pb-safe pointer-events-none">

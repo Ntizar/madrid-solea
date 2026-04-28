@@ -9,9 +9,10 @@ import type { Terraza } from '../lib/types';
 
 const MADRID_CENTER: [number, number] = [40.4168, -3.7038];
 
+const VOYAGER_TILES = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+const CARTO_LIGHT_TILES = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
 const HOT_TILES = 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png';
 const OSM_TILES = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-const CARTO_TILES = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png';
 
 function makeSunIcon() {
   return L.divIcon({
@@ -78,10 +79,19 @@ export function MapView() {
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-    const hot = L.tileLayer(HOT_TILES, {
-      attribution: '© OpenStreetMap contributors · Tiles courtesy of HOT',
+    const voyager = L.tileLayer(VOYAGER_TILES, {
+      attribution: '© OpenStreetMap contributors · © CARTO',
       maxZoom: 20,
-      subdomains: ['a', 'b', 'c'],
+      subdomains: ['a', 'b', 'c', 'd'],
+      detectRetina: true,
+      crossOrigin: true
+    });
+
+    const cartoLight = L.tileLayer(CARTO_LIGHT_TILES, {
+      attribution: '© OpenStreetMap contributors · © CARTO',
+      maxZoom: 19,
+      subdomains: ['a', 'b', 'c', 'd'],
+      detectRetina: true,
       crossOrigin: true
     });
 
@@ -92,14 +102,14 @@ export function MapView() {
       crossOrigin: true
     });
 
-    const carto = L.tileLayer(CARTO_TILES, {
-      attribution: '© OpenStreetMap contributors · © CARTO',
-      maxZoom: 19,
+    const hot = L.tileLayer(HOT_TILES, {
+      attribution: '© OpenStreetMap contributors · Tiles courtesy of HOT',
+      maxZoom: 20,
       subdomains: ['a', 'b', 'c'],
       crossOrigin: true
     });
 
-    const tileLayers = [hot, osm, carto];
+    const tileLayers = [voyager, cartoLight, osm, hot];
     const onLoad = () => setTilesLoaded(true);
     tileLayers.forEach((layer) => layer.on('load tileload', onLoad));
     const fallback = () => {
@@ -113,10 +123,11 @@ export function MapView() {
       map.removeLayer(current);
       next.addTo(map);
     };
-    hot.on('tileerror', fallback);
+    voyager.on('tileerror', fallback);
+    cartoLight.on('tileerror', fallback);
     osm.on('tileerror', fallback);
-    carto.on('tileerror', () => setMapError('No se han podido descargar las teselas del mapa.'));
-    hot.addTo(map);
+    hot.on('tileerror', () => setMapError('No se han podido descargar las teselas del mapa.'));
+    voyager.addTo(map);
 
     terraceLayerRef.current = L.markerClusterGroup({
       chunkedLoading: true,
@@ -193,6 +204,7 @@ export function MapView() {
   return (
     <div className="absolute inset-0 bg-[#EDE6D6]">
       <div ref={ref} className="absolute inset-0 z-0" aria-label="Mapa de Madrid" />
+      <div className="solmad-map-wash" aria-hidden="true" />
       {!tilesLoaded && !mapError && (
         <div className="absolute inset-0 z-[1] flex items-center justify-center pointer-events-none bg-[#EDE6D6]">
           <div className="text-night-700/70 font-display text-lg flex items-center gap-3">
