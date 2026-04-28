@@ -68,7 +68,15 @@ export function SideList() {
               w-full sm:w-[360px] flex flex-col text-paper
             "
           >
-            <div className="p-4 pt-16 border-b border-white/10 space-y-2">
+            <div className="p-4 pt-5 border-b border-white/10 space-y-2">
+              <div className="flex items-center justify-between">
+                <h2 className="font-display text-2xl text-paper">Top sol ahora</h2>
+                <button
+                  onClick={() => setOpen(false)}
+                  aria-label="Cerrar lista"
+                  className="rounded-full w-10 h-10 grid place-items-center bg-white/10 hover:bg-white/20 text-paper text-xl leading-none"
+                >×</button>
+              </div>
               <input
                 value={filters.query}
                 onChange={(e) => setFilters({ query: e.target.value })}

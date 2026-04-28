@@ -1,21 +1,35 @@
-import { useEffect, useMemo, useRef } from 'react';
-import maplibregl, { Map, GeoJSONSource } from 'maplibre-gl';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import maplibregl, { Map, GeoJSONSource, StyleSpecification } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import * as pmtiles from 'pmtiles';
 import { useAppStore } from '../store/useAppStore';
 import type { Terraza } from '../lib/types';
 
-const _w = window as any;
-if (!_w.__solmad_pmtiles) {
-  const protocol = new pmtiles.Protocol();
-  maplibregl.addProtocol('pmtiles', protocol.tile);
-  _w.__solmad_pmtiles = true;
-}
-
-const STYLE = 'https://tiles.openfreemap.org/styles/positron';
 const MADRID_CENTER: [number, number] = [-3.7038, 40.4168];
 
-// SVG → dataURL para el icono de sol amarillo (estilo "Soleo")
+// Estilo raster ligero y muy fiable (CARTO Positron). No depende de pmtiles ni
+// vector tiles que han fallado en cargas anteriores → el mapa se ve siempre.
+const RASTER_STYLE: StyleSpecification = {
+  version: 8,
+  glyphs: 'https://fonts.openmaptiles.org/{fontstack}/{range}.pbf',
+  sources: {
+    'carto-light': {
+      type: 'raster',
+      tiles: [
+        'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png',
+        'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png',
+        'https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png'
+      ],
+      tileSize: 256,
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a> · © <a href="https://carto.com/attributions">CARTO</a>',
+      maxzoom: 19
+    }
+  },
+  layers: [
+    { id: 'bg', type: 'background', paint: { 'background-color': '#EDE6D6' } },
+    { id: 'carto', type: 'raster', source: 'carto-light' }
+  ]
+};
+
 function makeSunIconDataURL() {
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
@@ -74,32 +88,46 @@ export function MapView() {
   const mapRef = useRef<Map | null>(null);
   const terrazas = useAppStore((s) => s.terrazas);
   const quickSun = useAppStore((s) => s.quickSun);
-  const selectedDate = useAppStore((s) => s.selectedDate);
   const setSelectedId = useAppStore((s) => s.setSelectedId);
   const setHoveredId = useAppStore((s) => s.setHoveredId);
+  const userLocation = useAppStore((s) => s.userLocation);
+
+  const [tilesLoaded, setTilesLoaded] = useState(false);
+  const [mapError, setMapError] = useState<string | null>(null);
 
   const fc = useMemo(() => buildGeoJSON(terrazas, quickSun), [terrazas, quickSun]);
 
   useEffect(() => {
     if (!ref.current || mapRef.current) return;
-    const map = new maplibregl.Map({
-      container: ref.current,
-      style: STYLE,
-      center: MADRID_CENTER,
-      zoom: 14.5,
-      pitch: 50,
-      bearing: -17,
-      antialias: true,
-      attributionControl: { compact: true }
-    });
+    let map: Map;
+    try {
+      map = new maplibregl.Map({
+        container: ref.current,
+        style: RASTER_STYLE,
+        center: MADRID_CENTER,
+        zoom: 13.5,
+        pitch: 0,
+        bearing: 0,
+        antialias: true,
+        attributionControl: { compact: true }
+      });
+    } catch (err: any) {
+      setMapError(err?.message ?? 'No se pudo iniciar el mapa');
+      return;
+    }
     mapRef.current = map;
     (window as any).__solmad_map = map;
-    map.touchZoomRotate.enableRotation();
 
     map.on('error', (e) => {
       // eslint-disable-next-line no-console
       console.warn('[map]', e.error?.message ?? e);
     });
+
+    const markLoaded = () => setTilesLoaded(true);
+    map.once('idle', markLoaded);
+    map.once('load', markLoaded);
+
+    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true }), 'bottom-right');
 
     map.on('load', async () => {
       await Promise.all([
@@ -107,41 +135,9 @@ export function MapView() {
         loadIcon(map, 'solmad-shadow', makeShadowIconDataURL())
       ]);
 
-      const layers = map.getStyle().layers ?? [];
-      const labelLayer = layers.find((l) => l.type === 'symbol');
-      const sources = map.getStyle().sources ?? {};
-
-      if (sources.openmaptiles && !map.getLayer('3d-buildings')) {
-        map.addLayer(
-          {
-            id: '3d-buildings',
-            source: 'openmaptiles',
-            'source-layer': 'building',
-            type: 'fill-extrusion',
-            minzoom: 13,
-            paint: {
-              'fill-extrusion-color': [
-                'interpolate', ['linear'], ['zoom'],
-                14, '#e6dccd',
-                17, '#d8c8b1'
-              ],
-              'fill-extrusion-height': [
-                'case',
-                ['has', 'render_height'], ['get', 'render_height'],
-                ['has', 'height'], ['get', 'height'],
-                17
-              ],
-              'fill-extrusion-base': 0,
-              'fill-extrusion-opacity': 0.85
-            }
-          },
-          labelLayer?.id
-        );
-      }
-
       map.addSource('terrazas', { type: 'geojson', data: fc });
 
-      // Terrazas en SOMBRA: punto azul oscuro discreto
+      // Sombra: punto azul oscuro
       map.addLayer({
         id: 'terrazas-shadow',
         type: 'circle',
@@ -150,9 +146,7 @@ export function MapView() {
         paint: {
           'circle-radius': [
             'interpolate', ['linear'], ['zoom'],
-            12, 2.5,
-            15, 4,
-            18, 7
+            12, 2.5, 15, 4, 18, 7
           ],
           'circle-color': '#1B2D44',
           'circle-stroke-color': '#0E1B2C',
@@ -161,7 +155,7 @@ export function MapView() {
         }
       });
 
-      // Terrazas con SOL: icono de sol amarillo (siempre visible)
+      // Sol: icono soleo
       map.addLayer({
         id: 'terrazas-sun',
         type: 'symbol',
@@ -173,22 +167,43 @@ export function MapView() {
           'icon-ignore-placement': true,
           'icon-size': [
             'interpolate', ['linear'], ['zoom'],
-            12, 0.32,
-            15, 0.5,
-            18, 0.85
+            12, 0.32, 15, 0.5, 18, 0.85
           ]
         }
       });
 
-      // Hit area: punto invisible más grande para tap móvil sobre las soleadas
+      // Hit-area invisible
       map.addLayer({
         id: 'terrazas-hit',
         type: 'circle',
         source: 'terrazas',
+        paint: { 'circle-radius': 18, 'circle-color': '#000', 'circle-opacity': 0 }
+      });
+
+      // Fuente de la posición del usuario
+      map.addSource('user-loc', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] }
+      });
+      map.addLayer({
+        id: 'user-loc-halo',
+        type: 'circle',
+        source: 'user-loc',
         paint: {
-          'circle-radius': 18,
-          'circle-color': '#000',
-          'circle-opacity': 0
+          'circle-radius': 22,
+          'circle-color': '#3B82F6',
+          'circle-opacity': 0.15
+        }
+      });
+      map.addLayer({
+        id: 'user-loc-dot',
+        type: 'circle',
+        source: 'user-loc',
+        paint: {
+          'circle-radius': 7,
+          'circle-color': '#3B82F6',
+          'circle-stroke-color': '#fff',
+          'circle-stroke-width': 2.5
         }
       });
 
@@ -201,20 +216,21 @@ export function MapView() {
       map.on('click', 'terrazas-sun', handlePick);
       map.on('click', 'terrazas-shadow', handlePick);
 
-      map.on('mouseenter', 'terrazas-hit', (e) => {
-        map.getCanvas().style.cursor = 'pointer';
-        const f = e.features?.[0];
-        if (f) setHoveredId(Number(f.properties!.id));
-      });
-      map.on('mouseleave', 'terrazas-hit', () => {
-        map.getCanvas().style.cursor = '';
-        setHoveredId(null);
+      const setCursor = (val: string) => { map.getCanvas().style.cursor = val; };
+      ['terrazas-hit', 'terrazas-sun', 'terrazas-shadow'].forEach((id) => {
+        map.on('mouseenter', id, (e) => {
+          setCursor('pointer');
+          const f = e.features?.[0];
+          if (f) setHoveredId(Number(f.properties!.id));
+        });
+        map.on('mouseleave', id, () => { setCursor(''); setHoveredId(null); });
       });
     });
 
     return () => { map.remove(); mapRef.current = null; };
   }, [setSelectedId, setHoveredId]);
 
+  // Actualizar terrazas
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -225,33 +241,62 @@ export function MapView() {
     if (map.isStyleLoaded()) apply(); else map.once('load', apply);
   }, [fc]);
 
-  // Pequeño hint del cielo según hora (color del fondo del mapa, sutil)
+  // Actualizar posición del usuario
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const apply = () => {
-      const h = selectedDate.getHours() + selectedDate.getMinutes() / 60;
-      let bg = '#EDE6D6';
-      if (h < 6) bg = '#1B2D44';
-      else if (h < 8) bg = '#E5C8A8';
-      else if (h < 11) bg = '#F0EAD6';
-      else if (h < 17) bg = '#EDE6D6';
-      else if (h < 20) bg = '#F0C593';
-      else if (h < 22) bg = '#5C5371';
-      else bg = '#1B2D44';
-      if (map.getLayer('background')) {
-        try { map.setPaintProperty('background', 'background-color', bg); } catch {}
+      const src = map.getSource('user-loc') as GeoJSONSource | undefined;
+      if (!src) return;
+      if (userLocation) {
+        src.setData({
+          type: 'FeatureCollection',
+          features: [{
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [userLocation.lng, userLocation.lat] },
+            properties: {}
+          }]
+        });
+      } else {
+        src.setData({ type: 'FeatureCollection', features: [] });
       }
     };
     if (map.isStyleLoaded()) apply(); else map.once('load', apply);
-  }, [selectedDate]);
+  }, [userLocation]);
 
-  return <div ref={ref} className="absolute inset-0" aria-label="Mapa de Madrid" />;
+  return (
+    <div className="absolute inset-0 bg-[#EDE6D6]">
+      <div ref={ref} className="absolute inset-0" aria-label="Mapa de Madrid" />
+      {!tilesLoaded && !mapError && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none bg-[#EDE6D6]">
+          <div className="text-night-700/70 font-display text-lg flex items-center gap-3">
+            <span className="inline-block w-3 h-3 rounded-full bg-sun-300 animate-pulse" />
+            Cargando mapa de Madrid…
+          </div>
+        </div>
+      )}
+      {mapError && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none bg-night-700">
+          <div className="text-paper text-center px-6">
+            <p className="font-display text-xl mb-2">No se pudo cargar el mapa</p>
+            <p className="text-paper/60 text-sm">{mapError}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function flyToTerraza(t: Terraza) {
   const w = window as any;
   if (w.__solmad_map) {
-    w.__solmad_map.flyTo({ center: [t.lng, t.lat], zoom: 17.2, pitch: 55, bearing: -20, speed: 0.9, curve: 1.6 });
+    w.__solmad_map.flyTo({ center: [t.lng, t.lat], zoom: 17.2, speed: 0.9, curve: 1.6 });
+  }
+}
+
+export function flyToUser(lat: number, lng: number) {
+  const w = window as any;
+  if (w.__solmad_map) {
+    w.__solmad_map.flyTo({ center: [lng, lat], zoom: 16, speed: 1.0 });
   }
 }

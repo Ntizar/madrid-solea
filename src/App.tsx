@@ -9,7 +9,7 @@ import { SurpriseButton } from './components/SurpriseButton';
 import { useAppStore } from './store/useAppStore';
 import { loadTerrazas, bbox } from './lib/terrazas';
 import { fetchBuildings } from './lib/buildings';
-import { shadowsApi } from './workers/shadowsClient';
+import { shadowsApi, ribbonApi } from './workers/shadowsClient';
 
 export function App() {
   const introDone = useAppStore((s) => s.introDone);
@@ -19,10 +19,27 @@ export function App() {
   const setBuildingsLoaded = useAppStore((s) => s.setBuildingsLoaded);
   const setSunStates = useAppStore((s) => s.setSunStates);
   const setQuickSun = useAppStore((s) => s.setQuickSun);
+  const setUserLocation = useAppStore((s) => s.setUserLocation);
+  const setGeoStatus = useAppStore((s) => s.setGeoStatus);
   const selectedDate = useAppStore((s) => s.selectedDate);
 
   const fullDebRef = useRef<number | null>(null);
   const quickDebRef = useRef<number | null>(null);
+
+  // Pedir ubicación cuando termine el intro (mejor UX que pedirla nada más entrar)
+  useEffect(() => {
+    if (!introDone) return;
+    if (!('geolocation' in navigator)) { setGeoStatus('unavailable'); return; }
+    setGeoStatus('asking');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setGeoStatus('granted');
+      },
+      () => { setGeoStatus('denied'); },
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 60_000 }
+    );
+  }, [introDone, setUserLocation, setGeoStatus]);
 
   // 1) Cargar terrazas y luego edificios + worker
   useEffect(() => {
@@ -43,6 +60,9 @@ export function App() {
         const originLng = (west + east) / 2;
         const originLat = (south + north) / 2;
         await api.setBuildings(buildings, originLng, originLat);
+        // Mismo dataset al worker dedicado a ribbons (no comparte memoria con
+        // Comlink, pero el coste es asumible y el ribbon ya no espera al masivo)
+        await ribbonApi().setBuildings(buildings, originLng, originLat);
         setBuildingsLoaded(true);
       } catch (err) {
         console.warn('[solmad] Overpass falló, usando modo sin sombras:', err);
@@ -91,6 +111,15 @@ export function App() {
       </div>
 
       <AnimatePresence>{!introDone && <Intro />}</AnimatePresence>
+
+      {/* Créditos: hecho con amor por David Antizar */}
+      <a
+        href="https://github.com/Ntizar/solmad"
+        target="_blank" rel="noreferrer"
+        className="hidden md:block fixed bottom-3 left-1/2 -translate-x-1/2 z-10 text-[11px] text-paper/60 hover:text-sun-300 transition tracking-wide font-display"
+      >
+        Hecho con ♥ por <strong className="text-paper/80">David Antizar</strong> para los disfrutones de Madrid
+      </a>
     </div>
   );
 }

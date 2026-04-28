@@ -20,6 +20,8 @@ interface State {
   filters: Filters;
   introDone: boolean;
   buildingsLoaded: boolean;
+  userLocation: { lat: number; lng: number } | null;
+  geoStatus: 'idle' | 'asking' | 'granted' | 'denied' | 'unavailable';
   // setters
   setTerrazas: (t: Terraza[]) => void;
   setDate: (d: Date, live?: boolean) => void;
@@ -31,6 +33,8 @@ interface State {
   setSunStates: (m: Map<number, SunState>) => void;
   updateSunState: (id: number, patch: Partial<SunState>) => void;
   setQuickSun: (u: Uint8Array | null) => void;
+  setUserLocation: (loc: { lat: number; lng: number } | null) => void;
+  setGeoStatus: (s: 'idle' | 'asking' | 'granted' | 'denied' | 'unavailable') => void;
 }
 
 export const useAppStore = create<State>((set) => ({
@@ -44,6 +48,8 @@ export const useAppStore = create<State>((set) => ({
   filters: { distrito: null, query: '', minHours: 0, onlyOpenNow: true },
   introDone: false,
   buildingsLoaded: false,
+  userLocation: null,
+  geoStatus: 'idle',
   setTerrazas: (terrazas) => set({ terrazas }),
   setDate: (d, live = false) => set({ selectedDate: d, isLive: live }),
   setSelectedId: (id) => set({ selectedId: id }),
@@ -59,5 +65,7 @@ export const useAppStore = create<State>((set) => ({
     next.set(id, { ...cur, ...patch });
     return { sunStates: next };
   }),
-  setQuickSun: (u) => set({ quickSun: u })
+  setQuickSun: (u) => set({ quickSun: u }),
+  setUserLocation: (loc) => set({ userLocation: loc }),
+  setGeoStatus: (s) => set({ geoStatus: s })
 }));

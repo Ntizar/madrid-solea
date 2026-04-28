@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useAppStore } from '../store/useAppStore';
 import { SunRhythm } from './SunRhythm';
-import { shadowsApi } from '../workers/shadowsClient';
+import { ribbonApi } from '../workers/shadowsClient';
 
 function fmtHM(min: number) {
   if (min <= 0) return '0 min';
@@ -39,7 +39,7 @@ export function DetailPanel() {
     let cancelled = false;
     (async () => {
       try {
-        const api = shadowsApi();
+        const api = ribbonApi();
         const r = await api.ribbonFor(t, selectedDate.toISOString());
         if (!cancelled) updateSunState(t.id, { ribbon: r });
       } catch (err) {
