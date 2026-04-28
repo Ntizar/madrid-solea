@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root { height: 100%; }
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+.font-display { font-family: 'Fraunces', Georgia, serif; font-optical-sizing: auto; }
+
+/* Slider con vibe cálido */
+.solea-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 28px;
+  background: transparent;
+}
+.solea-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    #1B2D44 0%, #C99B7C 18%, #E8A951 45%, #F5DDA8 55%, #C97A2B 78%, #1B2D44 100%
+  );
+}
+.solea-slider::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    #1B2D44 0%, #C99B7C 18%, #E8A951 45%, #F5DDA8 55%, #C97A2B 78%, #1B2D44 100%
+  );
+}
+.solea-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #FBF1DE;
+  border: 2px solid #E8A951;
+  box-shadow: 0 0 16px rgba(232,169,81,0.7);
+  margin-top: -8px;
+  cursor: pointer;
+  transition: transform .15s ease-out;
+}
+.solea-slider::-webkit-slider-thumb:hover { transform: scale(1.1); }
+.solea-slider::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #FBF1DE;
+  border: 2px solid #E8A951;
+  box-shadow: 0 0 16px rgba(232,169,81,0.7);
+  cursor: pointer;
+}
+
+/* MapLibre tweaks */
+.maplibregl-ctrl-attrib { font-size: 10px; opacity: 0.6; }
+.maplibregl-canvas { outline: none; }
+
+/* Safe areas iOS */
+@supports (padding: max(0px)) {
+  .pb-safe { padding-bottom: max(env(safe-area-inset-bottom), 0px); }
+}
