@@ -37,8 +37,8 @@ export function SideList() {
       })
       .sort((a, b) => {
         // Prioriza con sol AHORA, después por minutos restantes
-        const aw = (a.sun?.sunNow ? 1e6 : 0) + (a.sun?.minutesLeft ?? 0);
-        const bw = (b.sun?.sunNow ? 1e6 : 0) + (b.sun?.minutesLeft ?? 0);
+        const aw = (a.sun?.sunNow ? 1e6 : 0) + (a.sun?.sunNow ? a.sun.directMinutes : a.sun?.minutesLeft ?? 0);
+        const bw = (b.sun?.sunNow ? 1e6 : 0) + (b.sun?.sunNow ? b.sun.directMinutes : b.sun?.minutesLeft ?? 0);
         return bw - aw;
       })
       .slice(0, 80);
@@ -123,7 +123,7 @@ export function SideList() {
               )}
               {filtered.map(({ t, sun }) => {
                 const sunny = sun?.sunNow;
-                const min = sun?.minutesLeft ?? 0;
+                const min = sun ? (sunny ? sun.directMinutes : sun.minutesLeft) : 0;
                 return (
                   <li key={t.id}>
                     <button

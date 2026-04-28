@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { SunState, Terraza } from '../lib/types';
+import type { BuildingPoly, SunState, Terraza } from '../lib/types';
 
 interface Filters {
   distrito: string | null;
@@ -10,6 +10,7 @@ interface Filters {
 
 interface State {
   terrazas: Terraza[];
+  buildings: BuildingPoly[];
   // Mapa id->estado solar (full); y estado rápido por índice (sólo sunNow)
   sunStates: Map<number, SunState>;
   quickSun: Uint8Array | null;
@@ -24,6 +25,7 @@ interface State {
   geoStatus: 'idle' | 'asking' | 'granted' | 'denied' | 'unavailable';
   // setters
   setTerrazas: (t: Terraza[]) => void;
+  setBuildings: (b: BuildingPoly[]) => void;
   setDate: (d: Date, live?: boolean) => void;
   setSelectedId: (id: number | null) => void;
   setHoveredId: (id: number | null) => void;
@@ -39,6 +41,7 @@ interface State {
 
 export const useAppStore = create<State>((set) => ({
   terrazas: [],
+  buildings: [],
   sunStates: new Map(),
   quickSun: null,
   selectedDate: new Date(),
@@ -51,6 +54,7 @@ export const useAppStore = create<State>((set) => ({
   userLocation: null,
   geoStatus: 'idle',
   setTerrazas: (terrazas) => set({ terrazas }),
+  setBuildings: (buildings) => set({ buildings }),
   setDate: (d, live = false) => set({ selectedDate: d, isLive: live }),
   setSelectedId: (id) => set({ selectedId: id }),
   setHoveredId: (id) => set({ hoveredId: id }),

@@ -11,7 +11,10 @@ function dist2(a: { lat: number; lng: number }, b: { lat: number; lng: number })
 export function SurpriseButton() {
   const terrazas = useAppStore((s) => s.terrazas);
   const sunStates = useAppStore((s) => s.sunStates);
+  const userLocation = useAppStore((s) => s.userLocation);
   const setSelectedId = useAppStore((s) => s.setSelectedId);
+  const setUserLocation = useAppStore((s) => s.setUserLocation);
+  const setGeoStatus = useAppStore((s) => s.setGeoStatus);
 
   async function surprise() {
     // 1) Si tenemos sunStates calculados, busca con sol
@@ -26,13 +29,19 @@ export function SurpriseButton() {
     if (candidates.length === 0) return;
 
     // Intenta geolocalizar (timeout corto, no bloquea)
-    const me = await new Promise<{ lat: number; lng: number } | null>((resolve) => {
+    const me = userLocation ?? await new Promise<{ lat: number; lng: number } | null>((resolve) => {
       if (!navigator.geolocation) return resolve(null);
       const timer = setTimeout(() => resolve(null), 2500);
       navigator.geolocation.getCurrentPosition(
-        (p) => { clearTimeout(timer); resolve({ lat: p.coords.latitude, lng: p.coords.longitude }); },
-        () => { clearTimeout(timer); resolve(null); },
-        { timeout: 2500, maximumAge: 60_000 }
+        (p) => {
+          clearTimeout(timer);
+          const loc = { lat: p.coords.latitude, lng: p.coords.longitude };
+          setUserLocation(loc);
+          setGeoStatus('granted');
+          resolve(loc);
+        },
+        () => { clearTimeout(timer); setGeoStatus('denied'); resolve(null); },
+        { timeout: 3500, maximumAge: 60_000, enableHighAccuracy: true }
       );
     });
 
@@ -43,7 +52,7 @@ export function SurpriseButton() {
       pick = sorted[Math.floor(Math.random() * Math.min(12, sorted.length))];
     } else {
       // Sin geo: random total entre las que tienen más sol restante (top 30)
-      const sorted = [...candidates].sort((a, b) => (b.sun?.minutesLeft ?? 0) - (a.sun?.minutesLeft ?? 0));
+      const sorted = [...candidates].sort((a, b) => (b.sun?.directMinutes ?? b.sun?.minutesLeft ?? 0) - (a.sun?.directMinutes ?? a.sun?.minutesLeft ?? 0));
       const pool = sorted.slice(0, 30);
       pick = pool[Math.floor(Math.random() * pool.length)];
     }

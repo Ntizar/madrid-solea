@@ -34,8 +34,8 @@ const SKYLINE: Block[] = [
   { x:   8, z: -1, w: 3.8, d: 3.8, h: 24, color: '#8aa1b7' }, // Torre Caja Madrid
 
   // === Puerta de Europa (KIO Towers) — inclinadas 15° hacia adentro ===
-  { x:  -2, z:  2, w: 3.2, d: 3.2, h: 16, color: '#3a4a5e', tilt:  15, tiltAxis: 'z' },
-  { x:   2, z:  2, w: 3.2, d: 3.2, h: 16, color: '#3a4a5e', tilt: -15, tiltAxis: 'z' },
+  { x: -4.8, z:  2, w: 3.2, d: 3.2, h: 16, color: '#3a4a5e', tilt: -15, tiltAxis: 'z' },
+  { x:  4.8, z:  2, w: 3.2, d: 3.2, h: 16, color: '#3a4a5e', tilt:  15, tiltAxis: 'z' },
 
   // === Centro AZCA: Torre Picasso, Europa, BBVA ===
   { x:  -8, z:  3, w: 2.6, d: 2.6, h: 18, color: '#f0eada', emissiveGrid: true }, // Picasso
@@ -166,7 +166,6 @@ export function Intro() {
         else m.rotation.x = rad;
         // recolocar para que la base siga apoyada
         m.position.y = (b.h / 2) * Math.cos(rad);
-        m.position.x += (b.h / 2) * Math.sin(rad) * (b.tiltAxis === 'z' ? -1 : 0);
       }
       scene.add(m);
       meshes.push(m);

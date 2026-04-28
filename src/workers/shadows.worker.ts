@@ -134,11 +134,16 @@ const api = {
       const sunNow = isSunlit(ox, oy, azNow, altNow);
 
       let minutesLeft = 0;
+      let directMinutes = 0;
+      let directOpen = sunNow;
       for (const s of slots) {
-        if (s.al > 0 && isSunlit(ox, oy, s.az, s.al)) minutesLeft += STEP_MIN;
+        const lit = s.al > 0 && isSunlit(ox, oy, s.az, s.al);
+        if (lit) minutesLeft += STEP_MIN;
+        if (directOpen && lit) directMinutes += STEP_MIN;
+        else directOpen = false;
       }
 
-      results[i] = { sunNow, altitudeDeg: altNow, azimuthDeg: azNow, minutesLeft };
+      results[i] = { sunNow, altitudeDeg: altNow, azimuthDeg: azNow, minutesLeft, directMinutes };
     }
     return results;
   },

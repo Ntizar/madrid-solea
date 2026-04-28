@@ -58,8 +58,9 @@ export function DetailPanel() {
     return { tag: '⛅ Sombra', cls: 'bg-night-500/40 text-paper' };
   })();
 
-  const sunUntil = sun && sun.sunNow && sun.minutesLeft > 0
-    ? addMinToDate(selectedDate, sun.minutesLeft)
+  const currentDirectMinutes = sun?.directMinutes ?? 0;
+  const sunUntil = sun && sun.sunNow && currentDirectMinutes > 0
+    ? addMinToDate(selectedDate, currentDirectMinutes)
     : null;
 
   return (
@@ -100,7 +101,7 @@ export function DetailPanel() {
               <div className="flex items-baseline justify-between">
                 <span className="font-display text-2xl">{status.tag}</span>
                 {sun && sun.sunNow && (
-                  <span className="font-mono text-lg tabular-nums">{fmtHM(sun.minutesLeft)}</span>
+                  <span className="font-mono text-lg tabular-nums">{fmtHM(currentDirectMinutes)}</span>
                 )}
               </div>
               <p className={`text-sm mt-1 ${status.cls.includes('night-900') ? 'text-night-900/75' : 'text-paper/75'}`}>

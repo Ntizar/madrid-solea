@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
+import SunCalc from 'suncalc';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.markercluster';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 import { useAppStore } from '../store/useAppStore';
-import type { Terraza } from '../lib/types';
+import type { BuildingPoly, Terraza } from '../lib/types';
 
 const MADRID_CENTER: [number, number] = [40.4168, -3.7038];
 
@@ -13,6 +14,42 @@ const VOYAGER_TILES = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}
 const CARTO_LIGHT_TILES = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
 const HOT_TILES = 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png';
 const OSM_TILES = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+const M_PER_DEG_LAT = 111_320;
+
+function mPerDegLng(lat: number) {
+  return 111_320 * Math.cos((lat * Math.PI) / 180);
+}
+
+function sunAt(date: Date, lat: number, lng: number) {
+  const p = SunCalc.getPosition(date, lat, lng);
+  return {
+    az: (((p.azimuth * 180) / Math.PI) + 180 + 360) % 360,
+    alt: (p.altitude * 180) / Math.PI
+  };
+}
+
+function ringTouchesBounds(ring: BuildingPoly['ring'], bounds: L.LatLngBounds) {
+  return ring.some(([lng, lat]) => bounds.contains([lat, lng]));
+}
+
+function shadowLatLngs(building: BuildingPoly, azDeg: number, altDeg: number): L.LatLngExpression[] | null {
+  if (altDeg <= 1) return null;
+  const ring = building.ring;
+  if (ring.length < 3) return null;
+
+  const meanLat = ring.reduce((sum, [, lat]) => sum + lat, 0) / ring.length;
+  const az = (azDeg * Math.PI) / 180;
+  const alt = (altDeg * Math.PI) / 180;
+  const shadowLen = Math.min(180, Math.max(6, building.height / Math.tan(alt)));
+  const eastM = -Math.sin(az) * shadowLen;
+  const northM = -Math.cos(az) * shadowLen;
+  const dLat = northM / M_PER_DEG_LAT;
+  const dLng = eastM / mPerDegLng(meanLat);
+
+  const base = ring.map(([lng, lat]) => [lat, lng] as L.LatLngExpression);
+  const shifted = ring.map(([lng, lat]) => [lat + dLat, lng + dLng] as L.LatLngExpression).reverse();
+  return [...base, ...shifted];
+}
 
 function makeSunIcon() {
   return L.divIcon({
@@ -44,12 +81,15 @@ function makeUserIcon() {
 export function MapView() {
   const ref = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const shadowLayerRef = useRef<L.LayerGroup | null>(null);
   const terraceLayerRef = useRef<L.MarkerClusterGroup | null>(null);
   const userLayerRef = useRef<L.LayerGroup | null>(null);
   const tileFallbackStepRef = useRef(0);
 
   const terrazas = useAppStore((s) => s.terrazas);
+  const buildings = useAppStore((s) => s.buildings);
   const quickSun = useAppStore((s) => s.quickSun);
+  const selectedDate = useAppStore((s) => s.selectedDate);
   const setSelectedId = useAppStore((s) => s.setSelectedId);
   const setHoveredId = useAppStore((s) => s.setHoveredId);
   const userLocation = useAppStore((s) => s.userLocation);
@@ -76,6 +116,10 @@ export function MapView() {
 
     mapRef.current = map;
     (window as any).__solmad_map = map;
+
+    map.createPane('solmad-building-shadows');
+    const shadowPane = map.getPane('solmad-building-shadows');
+    if (shadowPane) shadowPane.style.zIndex = '430';
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
@@ -129,6 +173,7 @@ export function MapView() {
     hot.on('tileerror', () => setMapError('No se han podido descargar las teselas del mapa.'));
     voyager.addTo(map);
 
+    shadowLayerRef.current = L.layerGroup().addTo(map);
     terraceLayerRef.current = L.markerClusterGroup({
       chunkedLoading: true,
       removeOutsideVisibleBounds: true,
@@ -156,10 +201,46 @@ export function MapView() {
       window.clearTimeout(resize);
       map.remove();
       mapRef.current = null;
+      shadowLayerRef.current = null;
       terraceLayerRef.current = null;
       userLayerRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const layer = shadowLayerRef.current;
+    if (!map || !layer) return;
+
+    const render = () => {
+      layer.clearLayers();
+      if (buildings.length === 0) return;
+      const center = map.getCenter();
+      const { az, alt } = sunAt(selectedDate, center.lat, center.lng);
+      if (alt <= 1) return;
+
+      const bounds = map.getBounds().pad(0.28);
+      let drawn = 0;
+      for (const building of buildings) {
+        if (drawn >= 900) break;
+        if (!ringTouchesBounds(building.ring, bounds)) continue;
+        const poly = shadowLatLngs(building, az, alt);
+        if (!poly) continue;
+        L.polygon(poly, {
+          pane: 'solmad-building-shadows',
+          interactive: false,
+          stroke: false,
+          fillColor: '#223044',
+          fillOpacity: Math.max(0.08, Math.min(0.22, 0.28 - alt / 180))
+        }).addTo(layer);
+        drawn += 1;
+      }
+    };
+
+    render();
+    map.on('moveend zoomend', render);
+    return () => { map.off('moveend zoomend', render); };
+  }, [buildings, selectedDate]);
 
   useEffect(() => {
     const layer = terraceLayerRef.current;
