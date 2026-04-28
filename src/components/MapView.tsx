@@ -1,11 +1,19 @@
 import { useEffect, useMemo, useRef } from 'react';
 import maplibregl, { Map, GeoJSONSource } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import * as pmtiles from 'pmtiles';
 import { useAppStore } from '../store/useAppStore';
 import type { Terraza } from '../lib/types';
 
-// Estilo gratuito con edificios 3D (OpenFreeMap "Liberty")
-const STYLE = 'https://tiles.openfreemap.org/styles/liberty';
+// Registramos el protocolo pmtiles UNA sola vez globalmente.
+const _w = window as any;
+if (!_w.__solmad_pmtiles) {
+  const protocol = new pmtiles.Protocol();
+  maplibregl.addProtocol('pmtiles', protocol.tile);
+  _w.__solmad_pmtiles = true;
+}
+
+const STYLE = 'https://tiles.openfreemap.org/styles/positron';
 const MADRID_CENTER: [number, number] = [-3.7038, 40.4168];
 
 function buildGeoJSON(terrazas: Terraza[], quick: Uint8Array | null) {
@@ -17,7 +25,6 @@ function buildGeoJSON(terrazas: Terraza[], quick: Uint8Array | null) {
       properties: {
         id: t.id,
         name: t.name,
-        // 0 sombra, 1 sol, 2 noche, -1 desconocido
         sun: quick ? quick[i] : -1
       }
     }))
@@ -33,10 +40,8 @@ export function MapView() {
   const setSelectedId = useAppStore((s) => s.setSelectedId);
   const setHoveredId = useAppStore((s) => s.setHoveredId);
 
-  // GeoJSON memoizado por terrazas+quickSun
   const fc = useMemo(() => buildGeoJSON(terrazas, quickSun), [terrazas, quickSun]);
 
-  // Init map una sola vez
   useEffect(() => {
     if (!ref.current || mapRef.current) return;
     const map = new maplibregl.Map({
@@ -50,13 +55,19 @@ export function MapView() {
       attributionControl: { compact: true }
     });
     mapRef.current = map;
-    (window as any).__solea_map = map;
+    (window as any).__solmad_map = map;
+    map.touchZoomRotate.enableRotation();
+
+    map.on('error', (e) => {
+      // eslint-disable-next-line no-console
+      console.warn('[map]', e.error?.message ?? e);
+    });
 
     map.on('load', () => {
-      // Asegura capa de edificios 3D si el estilo la trae
       const layers = map.getStyle().layers ?? [];
-      const labelLayer = layers.find((l) => l.type === 'symbol' && (l.layout as any)?.['text-field']);
-      if (!map.getLayer('3d-buildings')) {
+      const labelLayer = layers.find((l) => l.type === 'symbol');
+      const sources = map.getStyle().sources ?? {};
+      if (sources.openmaptiles && !map.getLayer('3d-buildings')) {
         map.addLayer(
           {
             id: '3d-buildings',
@@ -67,8 +78,8 @@ export function MapView() {
             paint: {
               'fill-extrusion-color': [
                 'interpolate', ['linear'], ['zoom'],
-                14, '#dccdb6',
-                17, '#cfbfa7'
+                14, '#e6dccd',
+                17, '#d8c8b1'
               ],
               'fill-extrusion-height': [
                 'case',
@@ -77,14 +88,13 @@ export function MapView() {
                 17
               ],
               'fill-extrusion-base': 0,
-              'fill-extrusion-opacity': 0.9
+              'fill-extrusion-opacity': 0.92
             }
           },
           labelLayer?.id
         );
       }
 
-      // Fuente y capas de terrazas
       map.addSource('terrazas', { type: 'geojson', data: fc });
 
       map.addLayer({
@@ -93,7 +103,12 @@ export function MapView() {
         source: 'terrazas',
         filter: ['==', ['get', 'sun'], 1],
         paint: {
-          'circle-radius': 18,
+          'circle-radius': [
+            'interpolate', ['linear'], ['zoom'],
+            12, 8,
+            16, 22,
+            18, 32
+          ],
           'circle-color': '#E8A951',
           'circle-blur': 1,
           'circle-opacity': 0.55
@@ -107,9 +122,10 @@ export function MapView() {
         paint: {
           'circle-radius': [
             'interpolate', ['linear'], ['zoom'],
-            12, 3,
-            16, 7,
-            18, 11
+            11, 3.5,
+            14, 6,
+            16, 8.5,
+            18, 13
           ],
           'circle-color': [
             'match', ['get', 'sun'],
@@ -121,19 +137,21 @@ export function MapView() {
           'circle-stroke-width': 1.5,
           'circle-stroke-color': [
             'match', ['get', 'sun'],
-            1, '#FBF1DE',
+            1, '#FFFFFF',
             '#0E1B2C'
           ],
           'circle-opacity': 0.95
         }
       });
 
-      // Click + hover
-      map.on('click', 'terrazas-points', (e) => {
+      const handlePick = (e: any) => {
         const f = e.features?.[0];
         if (!f) return;
         setSelectedId(Number(f.properties!.id));
-      });
+      };
+      map.on('click', 'terrazas-points', handlePick);
+      map.on('click', 'terrazas-glow', handlePick);
+
       map.on('mouseenter', 'terrazas-points', (e) => {
         map.getCanvas().style.cursor = 'pointer';
         const f = e.features?.[0];
@@ -148,7 +166,6 @@ export function MapView() {
     return () => { map.remove(); mapRef.current = null; };
   }, [setSelectedId, setHoveredId]);
 
-  // Update GeoJSON cuando cambian datos / sol
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -159,22 +176,22 @@ export function MapView() {
     if (map.isStyleLoaded()) apply(); else map.once('load', apply);
   }, [fc]);
 
-  // Cambia tono del cielo / luz según hora
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const apply = () => {
       const h = selectedDate.getHours() + selectedDate.getMinutes() / 60;
-      // Curva: 6→azul aurora, 9→cielo claro, 13→pleno, 19→ámbar, 22→noche
-      let bg = '#9CB6CC';
-      if (h < 6 || h > 22) bg = '#0E1B2C';
-      else if (h < 8) bg = '#C99B7C';
-      else if (h < 11) bg = '#BFD3DE';
-      else if (h < 17) bg = '#D8DEDE';
-      else if (h < 20) bg = '#E8A951';
-      else bg = '#3A4E69';
-      const layer = map.getLayer('background');
-      if (layer) map.setPaintProperty('background', 'background-color', bg);
+      let bg = '#EDE6D6';
+      if (h < 6) bg = '#1B2D44';
+      else if (h < 8) bg = '#E5C8A8';
+      else if (h < 11) bg = '#E2EAEE';
+      else if (h < 17) bg = '#EDE6D6';
+      else if (h < 20) bg = '#F0C593';
+      else if (h < 22) bg = '#5C5371';
+      else bg = '#1B2D44';
+      if (map.getLayer('background')) {
+        try { map.setPaintProperty('background', 'background-color', bg); } catch {}
+      }
     };
     if (map.isStyleLoaded()) apply(); else map.once('load', apply);
   }, [selectedDate]);
@@ -183,9 +200,8 @@ export function MapView() {
 }
 
 export function flyToTerraza(t: Terraza) {
-  // Util: el componente expone una API global mínima vía window para SurpriseButton.
   const w = window as any;
-  if (w.__solea_map) {
-    w.__solea_map.flyTo({ center: [t.lng, t.lat], zoom: 17.2, pitch: 60, bearing: -20, speed: 0.9, curve: 1.6 });
+  if (w.__solmad_map) {
+    w.__solmad_map.flyTo({ center: [t.lng, t.lat], zoom: 17.2, pitch: 60, bearing: -20, speed: 0.9, curve: 1.6 });
   }
 }

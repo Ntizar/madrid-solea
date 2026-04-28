@@ -3,7 +3,7 @@ import type { BuildingPoly } from './types';
 const ENDPOINT = 'https://overpass-api.de/api/interpreter';
 const DEFAULT_HEIGHT_M = 17; // ≈ 5 plantas, fallback Madrid centro
 const LEVEL_HEIGHT_M = 3.2;
-const CACHE_KEY = 'solea:buildings:v1';
+const CACHE_KEY = 'solmad:buildings:v1';
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24; // 24h
 
 interface CacheEntry { ts: number; bbox: [number, number, number, number]; data: BuildingPoly[]; }

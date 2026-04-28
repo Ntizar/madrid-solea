@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { motion } from 'framer-motion';
 import SunCalc from 'suncalc';
 import { useAppStore } from '../store/useAppStore';
@@ -15,12 +15,13 @@ function setHourMin(base: Date, h: number, m: number) {
   return d;
 }
 
+interface Preset { label: string; short: string; getDate: (base: Date, sunset?: Date) => Date; live?: boolean; }
+
 export function TimeWheel() {
   const selectedDate = useAppStore((s) => s.selectedDate);
   const isLive = useAppStore((s) => s.isLive);
   const setDate = useAppStore((s) => s.setDate);
 
-  // Tick "Ahora" cada minuto si live
   useEffect(() => {
     if (!isLive) return;
     const id = setInterval(() => setDate(new Date(), true), 60_000);
@@ -29,26 +30,71 @@ export function TimeWheel() {
 
   const sunset = useMemo(() => SunCalc.getTimes(selectedDate, MADRID[0], MADRID[1]).sunset, [selectedDate]);
 
-  // Slider 6:00..23:00 = 17h * 12 cuartos = pasos de 5 min
+  const presets: Preset[] = useMemo(() => [
+    { label: 'Ahora',                 short: 'Ahora',     getDate: () => new Date(), live: true },
+    { label: 'Desayuno · 10:00',      short: 'Desayuno',  getDate: (b) => setHourMin(b, 10, 0) },
+    { label: 'Vermut · 12:30',        short: 'Vermut',    getDate: (b) => setHourMin(b, 12, 30) },
+    { label: 'Caña · 13:30',          short: 'Caña',      getDate: (b) => setHourMin(b, 13, 30) },
+    { label: 'Comida · 14:30',        short: 'Comida',    getDate: (b) => setHourMin(b, 14, 30) },
+    { label: 'Merienda · 18:00',      short: 'Merienda',  getDate: (b) => setHourMin(b, 18, 0) },
+    { label: sunset ? `Atardecer · ${fmt(sunset)}` : 'Atardecer', short: 'Atardecer', getDate: (b, s) => s ? new Date(s.getTime() - 30 * 60_000) : setHourMin(b, 21, 0) }
+  ], [sunset]);
+
   const minMin = 6 * 60;
   const maxMin = 23 * 60;
   const cur = selectedDate.getHours() * 60 + selectedDate.getMinutes();
   const value = Math.max(minMin, Math.min(maxMin, cur));
 
+  const chipsRef = useRef<HTMLDivElement>(null);
+
+  // Detecta cuál preset está activo (matching rough)
+  const activeIdx = useMemo(() => {
+    if (isLive) return 0;
+    const cm = selectedDate.getHours() * 60 + selectedDate.getMinutes();
+    for (let i = 1; i < presets.length; i++) {
+      const p = presets[i].getDate(selectedDate, sunset ?? undefined);
+      const pm = p.getHours() * 60 + p.getMinutes();
+      if (Math.abs(pm - cm) <= 2) return i;
+    }
+    return -1;
+  }, [isLive, selectedDate, presets, sunset]);
+
   return (
-    <div className="pointer-events-auto w-full max-w-3xl mx-auto px-4">
-      <div className="rounded-2xl bg-night-700/80 backdrop-blur-md border border-white/10 shadow-2xl px-4 py-3">
-        <div className="flex items-center justify-between text-paper/90 mb-2">
-          <span className="font-display text-2xl tracking-tight">{fmt(selectedDate)}</span>
-          <div className="flex flex-wrap gap-1.5">
-            <Preset label="Ahora" onClick={() => setDate(new Date(), true)} active={isLive} />
-            <Preset label="Vermut · 12:30" onClick={() => setDate(setHourMin(selectedDate, 12, 30))} />
-            <Preset label="Caña · 13:30" onClick={() => setDate(setHourMin(selectedDate, 13, 30))} />
-            <Preset label="Comida · 14:30" onClick={() => setDate(setHourMin(selectedDate, 14, 30))} />
-            {sunset && <Preset label={`Atardecer · ${fmt(sunset)}`} onClick={() => setDate(new Date(sunset.getTime() - 30 * 60_000))} />}
-          </div>
+    <div
+      className="
+        pointer-events-auto w-full
+        sm:max-w-3xl sm:mx-auto sm:px-4
+      "
+    >
+      <div
+        className="
+          bg-night-700/90 sm:bg-night-700/85 backdrop-blur-md
+          border-t border-white/10 sm:border sm:border-white/10 sm:shadow-2xl
+          sm:rounded-2xl
+          px-4 pt-3 pb-3 sm:px-5 sm:py-4
+        "
+      >
+        {/* Fila 1: hora gigante + estado live */}
+        <div className="flex items-baseline justify-between mb-2">
+          <span className="font-display text-3xl sm:text-2xl tracking-tight text-paper tabular-nums">
+            {fmt(selectedDate)}
+          </span>
+          {isLive ? (
+            <span className="flex items-center gap-1.5 text-sun-300 text-[10px] uppercase tracking-widest">
+              <span className="w-1.5 h-1.5 rounded-full bg-sun-300 animate-pulse" />
+              en vivo
+            </span>
+          ) : (
+            <button
+              onClick={() => setDate(new Date(), true)}
+              className="text-[10px] uppercase tracking-widest text-paper/60 hover:text-sun-300 transition"
+            >
+              volver a ahora →
+            </button>
+          )}
         </div>
 
+        {/* Fila 2: slider gordo táctil */}
         <input
           type="range"
           min={minMin}
@@ -63,26 +109,42 @@ export function TimeWheel() {
           className="solea-slider w-full"
           aria-label="Hora del día"
         />
-        <div className="flex justify-between text-xs text-paper/60 mt-1 font-mono">
-          <span>06:00</span><span>12:00</span><span>18:00</span><span>23:00</span>
+        <div className="flex justify-between text-[10px] text-paper/45 mt-0.5 font-mono">
+          <span>06</span><span>09</span><span>12</span><span>15</span><span>18</span><span>21</span><span>23</span>
+        </div>
+
+        {/* Fila 3: chips scrollables horizontales */}
+        <div
+          ref={chipsRef}
+          className="
+            mt-2 flex gap-1.5 overflow-x-auto no-scrollbar
+            -mx-4 px-4 sm:mx-0 sm:px-0
+            snap-x snap-mandatory
+          "
+          style={{ scrollPaddingLeft: 16 }}
+        >
+          {presets.map((p, i) => {
+            const active = i === activeIdx;
+            return (
+              <motion.button
+                key={p.short}
+                whileTap={{ scale: 0.93 }}
+                onClick={() => setDate(p.getDate(selectedDate, sunset ?? undefined), !!p.live)}
+                className={`
+                  shrink-0 snap-start text-[13px] sm:text-xs
+                  px-3.5 py-2 sm:py-1.5 rounded-full border transition
+                  ${active
+                    ? 'bg-sun-300 text-night-900 border-sun-300 shadow-glow font-medium'
+                    : 'border-white/15 text-paper/85 hover:border-sun-300 hover:text-sun-300 active:bg-white/10'}
+                `}
+              >
+                <span className="sm:hidden">{p.short}</span>
+                <span className="hidden sm:inline">{p.label}</span>
+              </motion.button>
+            );
+          })}
         </div>
       </div>
     </div>
-  );
-}
-
-function Preset({ label, onClick, active }: { label: string; onClick: () => void; active?: boolean }) {
-  return (
-    <motion.button
-      whileTap={{ scale: 0.96 }}
-      onClick={onClick}
-      className={`text-xs px-2.5 py-1 rounded-full border transition ${
-        active
-          ? 'bg-sun-300 text-night-900 border-sun-300 shadow-glow'
-          : 'border-white/15 text-paper/80 hover:border-sun-300 hover:text-sun-300'
-      }`}
-    >
-      {label}
-    </motion.button>
   );
 }

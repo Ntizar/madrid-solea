@@ -1,4 +1,4 @@
-# Madrid Solea
+# SolMAD
 
 Web app para responder: "¿En qué terraza de Madrid me puedo tomar una caña ahora mismo y darme el sol?"
 

@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { useAppStore } from '../store/useAppStore';
 import { flyToTerraza } from './MapView';
+import type { Terraza } from '../lib/types';
 
 function dist2(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
   const dx = a.lng - b.lng, dy = a.lat - b.lat;
@@ -13,25 +14,40 @@ export function SurpriseButton() {
   const setSelectedId = useAppStore((s) => s.setSelectedId);
 
   async function surprise() {
-    const candidates = terrazas
+    // 1) Si tenemos sunStates calculados, busca con sol
+    let candidates = terrazas
       .map((t) => ({ t, sun: sunStates.get(t.id) }))
-      .filter(({ sun }) => sun && sun.sunNow && sun.minutesLeft >= 45);
+      .filter(({ sun }) => sun?.sunNow);
+
+    // 2) Si no hay datos solares aún, o nadie tiene sol, suelta cualquiera abierta
+    if (candidates.length === 0) {
+      candidates = terrazas.map((t) => ({ t, sun: sunStates.get(t.id) }));
+    }
     if (candidates.length === 0) return;
 
+    // Intenta geolocalizar (timeout corto, no bloquea)
     const me = await new Promise<{ lat: number; lng: number } | null>((resolve) => {
       if (!navigator.geolocation) return resolve(null);
+      const timer = setTimeout(() => resolve(null), 2500);
       navigator.geolocation.getCurrentPosition(
-        (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
-        () => resolve(null),
-        { timeout: 4000 }
+        (p) => { clearTimeout(timer); resolve({ lat: p.coords.latitude, lng: p.coords.longitude }); },
+        () => { clearTimeout(timer); resolve(null); },
+        { timeout: 2500, maximumAge: 60_000 }
       );
     });
 
-    let pick = candidates[Math.floor(Math.random() * candidates.length)];
+    let pick: { t: Terraza };
     if (me) {
       const sorted = [...candidates].sort((a, b) => dist2(a.t, me) - dist2(b.t, me));
-      pick = sorted[Math.floor(Math.random() * Math.min(8, sorted.length))]; // top 8 cercanas
+      // Top 12 cercanas, una al azar
+      pick = sorted[Math.floor(Math.random() * Math.min(12, sorted.length))];
+    } else {
+      // Sin geo: random total entre las que tienen más sol restante (top 30)
+      const sorted = [...candidates].sort((a, b) => (b.sun?.minutesLeft ?? 0) - (a.sun?.minutesLeft ?? 0));
+      const pool = sorted.slice(0, 30);
+      pick = pool[Math.floor(Math.random() * pool.length)];
     }
+
     setSelectedId(pick.t.id);
     flyToTerraza(pick.t);
   }
@@ -39,12 +55,18 @@ export function SurpriseButton() {
   return (
     <motion.button
       whileHover={{ scale: 1.03 }}
-      whileTap={{ scale: 0.96 }}
+      whileTap={{ scale: 0.94 }}
       onClick={surprise}
-      className="fixed top-4 right-4 z-30 rounded-full bg-sun-300 text-night-900 font-display text-base px-5 py-2.5 shadow-glow hover:bg-sun-100 transition"
+      className="
+        fixed top-4 right-4 z-30
+        rounded-full bg-sun-300 text-night-900 font-display font-medium
+        text-sm sm:text-base
+        px-4 sm:px-5 py-2.5 sm:py-2.5
+        shadow-glow hover:bg-sun-100 transition
+      "
       aria-label="Sorpréndeme con una terraza al sol"
     >
-      ☀ Sorpréndeme
+      ☀ <span className="hidden xs:inline">Sorpréndeme</span><span className="xs:hidden">Sorpresa</span>
     </motion.button>
   );
 }

@@ -45,7 +45,7 @@ export function App() {
         await api.setBuildings(buildings, originLng, originLat);
         setBuildingsLoaded(true);
       } catch (err) {
-        console.warn('[solea] Overpass falló, usando modo sin sombras:', err);
+        console.warn('[solmad] Overpass falló, usando modo sin sombras:', err);
         setBuildingsLoaded(true); // seguimos: todo "soleado" si la altitud > 0
       }
     })();
