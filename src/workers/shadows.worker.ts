@@ -4,8 +4,8 @@ import type { BuildingPoly, SunState, Terraza } from '../lib/types';
 
 const M_PER_DEG_LAT = 111_320;
 const RAY_LEN_M = 250;
-const STEP_MIN = 5;            // resolución para "minutos restantes"
-const RIBBON_STEP_MIN = 30;    // resolución para el gráfico de ritmo (48 = 24h)
+const STEP_MIN = 10;
+const RIBBON_STEP_MIN = 30;
 
 function mPerDegLng(lat: number) {
   return 111_320 * Math.cos((lat * Math.PI) / 180);
@@ -13,9 +13,8 @@ function mPerDegLng(lat: number) {
 
 interface Seg { ax: number; ay: number; bx: number; by: number; h: number; }
 
-// Construye índice grid sobre los segmentos de los edificios para acelerar.
 class SegIndex {
-  cell = 60; // metros por celda
+  cell = 60;
   grid = new Map<string, Seg[]>();
   originLng = 0; originLat = 0; mLng = 1;
 
@@ -27,8 +26,7 @@ class SegIndex {
       for (let i = 0; i < r.length - 1; i++) {
         const [ax, ay] = this.toM(r[i][0], r[i][1]);
         const [bx, by] = this.toM(r[i + 1][0], r[i + 1][1]);
-        const seg: Seg = { ax, ay, bx, by, h: b.height };
-        this.indexSeg(seg);
+        this.indexSeg({ ax, ay, bx, by, h: b.height });
       }
     }
   }
@@ -70,8 +68,6 @@ class SegIndex {
 let index: SegIndex | null = null;
 
 function segIntersectRay(ox: number, oy: number, dx: number, dy: number, len: number, s: Seg): number | null {
-  // ray: P = O + t*D, t in [0, len]
-  // seg: Q = A + u*(B-A), u in [0,1]
   const r1x = dx, r1y = dy;
   const r2x = s.bx - s.ax, r2y = s.by - s.ay;
   const denom = r1x * r2y - r1y * r2x;
@@ -92,10 +88,17 @@ function isSunlit(originX: number, originY: number, azDeg: number, altDeg: numbe
   for (const s of segs) {
     const t = segIntersectRay(originX, originY, dx, dy, RAY_LEN_M, s);
     if (t === null) continue;
-    const rayH = t * tanAlt; // altura del rayo a esa distancia
-    if (s.h > rayH + 0.5) return false; // bloquea con margen
+    const rayH = t * tanAlt;
+    if (s.h > rayH + 0.5) return false;
   }
   return true;
+}
+
+function sunPos(when: Date, lat: number, lng: number) {
+  const p = SunCalc.getPosition(when, lat, lng);
+  const az = (((p.azimuth * 180) / Math.PI) + 180 + 360) % 360;
+  const al = (p.altitude * 180) / Math.PI;
+  return { az, al };
 }
 
 const api = {
@@ -105,63 +108,58 @@ const api = {
     return { segments: [...index.grid.values()].reduce((a, b) => a + b.length, 0) };
   },
 
+  /** Bulk: estado actual + minutos restantes hasta el ocaso (sin ribbon, lazy). */
   computeFor(terrazas: Terraza[], whenIso: string): SunState[] {
     if (!index) throw new Error('Buildings not loaded');
     const when = new Date(whenIso);
     const results: SunState[] = new Array(terrazas.length);
 
-    // sunset común aproximado (cogemos el de la primera terraza, Madrid es pequeño)
     const ref = terrazas[0];
-    const times = SunCalc.getTimes(when, ref.lat, ref.lng);
-    const sunset = times.sunset;
+    const times = ref ? SunCalc.getTimes(when, ref.lat, ref.lng) : null;
+    const sunset = times?.sunset;
+
+    // Madrid es pequeño: una sola trayectoria solar para todos.
+    const slots: Array<{ az: number; al: number }> = [];
+    if (sunset && when < sunset && ref) {
+      const end = sunset.getTime();
+      for (let ts = when.getTime(); ts < end; ts += STEP_MIN * 60_000) {
+        slots.push(sunPos(new Date(ts), ref.lat, ref.lng));
+      }
+    }
 
     for (let i = 0; i < terrazas.length; i++) {
       const t = terrazas[i];
       const [ox, oy] = index.toM(t.lng, t.lat);
-
-      // Estado ahora
-      const pNow = SunCalc.getPosition(when, t.lat, t.lng);
-      const azNow = (((pNow.azimuth * 180) / Math.PI) + 180 + 360) % 360;
-      const altNow = (pNow.altitude * 180) / Math.PI;
+      const { az: azNow, al: altNow } = sunPos(when, t.lat, t.lng);
       const sunNow = isSunlit(ox, oy, azNow, altNow);
 
-      // Minutos restantes (5 min steps hasta sunset)
       let minutesLeft = 0;
-      if (sunset && when < sunset) {
-        const end = sunset.getTime();
-        for (let ts = when.getTime(); ts < end; ts += STEP_MIN * 60_000) {
-          const d = new Date(ts);
-          const p = SunCalc.getPosition(d, t.lat, t.lng);
-          const az = (((p.azimuth * 180) / Math.PI) + 180 + 360) % 360;
-          const al = (p.altitude * 180) / Math.PI;
-          if (al > 0 && isSunlit(ox, oy, az, al)) minutesLeft += STEP_MIN;
-        }
+      for (const s of slots) {
+        if (s.al > 0 && isSunlit(ox, oy, s.az, s.al)) minutesLeft += STEP_MIN;
       }
 
-      // Ribbon 48 medias horas del día actual
-      const ribbon: number[] = new Array(48);
-      const day = new Date(when); day.setHours(0, 0, 0, 0);
-      for (let k = 0; k < 48; k++) {
-        const d = new Date(day.getTime() + k * RIBBON_STEP_MIN * 60_000);
-        const p = SunCalc.getPosition(d, t.lat, t.lng);
-        const az = (((p.azimuth * 180) / Math.PI) + 180 + 360) % 360;
-        const al = (p.altitude * 180) / Math.PI;
-        if (al <= 0) ribbon[k] = 2; // noche
-        else ribbon[k] = isSunlit(ox, oy, az, al) ? 1 : 0;
-      }
-
-      results[i] = {
-        sunNow,
-        altitudeDeg: altNow,
-        azimuthDeg: azNow,
-        minutesLeft,
-        ribbon
-      };
+      results[i] = { sunNow, altitudeDeg: altNow, azimuthDeg: azNow, minutesLeft };
     }
     return results;
   },
 
-  // Versión rápida: solo sunNow (para arrastrar el slider en tiempo real).
+  /** Ribbon de 48 medias horas para una sola terraza (lazy en el detalle). */
+  ribbonFor(t: Terraza, whenIso: string): number[] {
+    if (!index) throw new Error('Buildings not loaded');
+    const when = new Date(whenIso);
+    const [ox, oy] = index.toM(t.lng, t.lat);
+    const ribbon: number[] = new Array(48);
+    const day = new Date(when); day.setHours(0, 0, 0, 0);
+    for (let k = 0; k < 48; k++) {
+      const d = new Date(day.getTime() + k * RIBBON_STEP_MIN * 60_000);
+      const { az, al } = sunPos(d, t.lat, t.lng);
+      if (al <= 0) ribbon[k] = 2;
+      else ribbon[k] = isSunlit(ox, oy, az, al) ? 1 : 0;
+    }
+    return ribbon;
+  },
+
+  /** Quick: solo sunNow, para arrastre en vivo del slider. */
   quickFor(terrazas: Terraza[], whenIso: string): Uint8Array {
     if (!index) throw new Error('Buildings not loaded');
     const when = new Date(whenIso);
@@ -169,9 +167,7 @@ const api = {
     for (let i = 0; i < terrazas.length; i++) {
       const t = terrazas[i];
       const [ox, oy] = index.toM(t.lng, t.lat);
-      const p = SunCalc.getPosition(when, t.lat, t.lng);
-      const az = (((p.azimuth * 180) / Math.PI) + 180 + 360) % 360;
-      const al = (p.altitude * 180) / Math.PI;
+      const { az, al } = sunPos(when, t.lat, t.lng);
       out[i] = al <= 0 ? 2 : isSunlit(ox, oy, az, al) ? 1 : 0;
     }
     return out;

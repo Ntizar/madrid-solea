@@ -3,6 +3,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '../store/useAppStore';
 import { flyToTerraza } from './MapView';
 
+function fmtHM(min: number) {
+  const h = Math.floor(min / 60), m = min % 60;
+  if (!h) return `${m} min`;
+  return `${h}h ${String(m).padStart(2, '0')}`;
+}
+
 export function SideList() {
   const terrazas = useAppStore((s) => s.terrazas);
   const sunStates = useAppStore((s) => s.sunStates);
@@ -10,6 +16,8 @@ export function SideList() {
   const setFilters = useAppStore((s) => s.setFilters);
   const setSelectedId = useAppStore((s) => s.setSelectedId);
   const [open, setOpen] = useState(false);
+
+  const ready = sunStates.size > 0;
 
   const distritos = useMemo(() => {
     const set = new Set(terrazas.map((t) => t.distrito).filter(Boolean));
@@ -23,21 +31,29 @@ export function SideList() {
       .filter(({ t, sun }) => {
         if (filters.distrito && t.distrito !== filters.distrito) return false;
         if (filters.minHours && (!sun || sun.minutesLeft < filters.minHours * 60)) return false;
-        if (filters.onlyOpenNow && sun && !sun.sunNow) return false;
+        if (filters.onlyOpenNow && (!sun || !sun.sunNow)) return false;
         if (q && !t.name.toLowerCase().includes(q) && !t.via.toLowerCase().includes(q)) return false;
         return true;
       })
-      .sort((a, b) => (b.sun?.minutesLeft ?? 0) - (a.sun?.minutesLeft ?? 0))
-      .slice(0, 50);
+      .sort((a, b) => {
+        // Prioriza con sol AHORA, después por minutos restantes
+        const aw = (a.sun?.sunNow ? 1e6 : 0) + (a.sun?.minutesLeft ?? 0);
+        const bw = (b.sun?.sunNow ? 1e6 : 0) + (b.sun?.minutesLeft ?? 0);
+        return bw - aw;
+      })
+      .slice(0, 80);
   }, [terrazas, sunStates, filters]);
 
   return (
     <>
       <button
         onClick={() => setOpen((v) => !v)}
-        className="fixed top-4 left-4 z-30 rounded-full bg-night-700/80 backdrop-blur border border-white/10 px-4 py-2 text-paper/90 hover:text-sun-300 transition shadow-xl"
+        className="fixed top-4 left-4 z-30 rounded-full bg-night-700/85 backdrop-blur border border-white/10 px-4 py-2 text-paper/90 hover:text-sun-300 transition shadow-xl flex items-center gap-2"
       >
-        <span className="font-display text-base">{open ? 'Cerrar' : 'Top sol ahora'}</span>
+        <span className="font-display text-sm sm:text-base">{open ? 'Cerrar' : 'Top sol ahora'}</span>
+        {!open && ready && (
+          <span className="text-[10px] uppercase tracking-widest text-sun-300">{filtered.length}</span>
+        )}
       </button>
 
       <AnimatePresence>
@@ -63,7 +79,7 @@ export function SideList() {
                 <select
                   value={filters.distrito ?? ''}
                   onChange={(e) => setFilters({ distrito: e.target.value || null })}
-                  className="flex-1 bg-white/5 rounded-xl px-3 py-2 text-paper/90 outline-none"
+                  className="flex-1 bg-night-700 border border-white/10 rounded-xl px-3 py-2 text-paper/90 outline-none"
                 >
                   <option value="">Todos los distritos</option>
                   {distritos.map((d) => <option key={d} value={d}>{d}</option>)}
@@ -71,7 +87,7 @@ export function SideList() {
                 <select
                   value={filters.minHours}
                   onChange={(e) => setFilters({ minHours: Number(e.target.value) })}
-                  className="bg-white/5 rounded-xl px-3 py-2 text-paper/90 outline-none"
+                  className="bg-night-700 border border-white/10 rounded-xl px-3 py-2 text-paper/90 outline-none"
                 >
                   <option value={0}>Cualquier sol</option>
                   <option value={1}>≥ 1 h</option>
@@ -88,31 +104,44 @@ export function SideList() {
                 />
                 Sólo con sol ahora mismo
               </label>
+              {!ready && (
+                <p className="text-xs text-paper/60 italic">Calculando sombras… (~2 s)</p>
+              )}
             </div>
 
             <ul className="flex-1 overflow-y-auto divide-y divide-white/5">
-              {filtered.length === 0 && (
-                <li className="p-6 text-paper/60 text-sm">Nada encaja con esos filtros. Prueba con otra hora o distrito.</li>
+              {ready && filtered.length === 0 && (
+                <li className="p-6 text-paper/60 text-sm">Nada encaja con esos filtros. Prueba otra hora o distrito.</li>
               )}
               {filtered.map(({ t, sun }) => {
+                const sunny = sun?.sunNow;
                 const min = sun?.minutesLeft ?? 0;
-                const h = Math.floor(min / 60), mm = min % 60;
                 return (
                   <li key={t.id}>
                     <button
                       onClick={() => { setSelectedId(t.id); flyToTerraza(t); setOpen(false); }}
                       className="w-full text-left p-4 hover:bg-white/5 transition flex items-center gap-3"
                     >
-                      <div className={`w-2.5 h-2.5 rounded-full mt-1 shrink-0 ${
-                        sun?.sunNow ? 'bg-sun-300 shadow-glow' : 'bg-night-500'
-                      }`} />
+                      <div className="w-7 h-7 grid place-items-center shrink-0 text-base">
+                        {sunny ? '☀' : sun ? '⛅' : '⏳'}
+                      </div>
                       <div className="flex-1 min-w-0">
                         <div className="font-display text-lg leading-tight truncate">{t.name}</div>
                         <div className="text-xs text-paper/60 truncate">{t.via} {t.num} · {t.barrio}</div>
                       </div>
                       <div className="text-right shrink-0">
-                        <div className="text-sun-300 font-mono text-sm">{h}h {mm.toString().padStart(2, '0')}</div>
-                        <div className="text-[10px] text-paper/40 uppercase tracking-widest">restante</div>
+                        {sun ? (
+                          <>
+                            <div className={`font-mono text-sm ${sunny ? 'text-sun-300' : 'text-paper/50'}`}>
+                              {min > 0 ? fmtHM(min) : '—'}
+                            </div>
+                            <div className="text-[10px] text-paper/40 uppercase tracking-widest">
+                              {sunny ? 'de sol' : 'restante hoy'}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="text-[10px] text-paper/40">…</div>
+                        )}
                       </div>
                     </button>
                   </li>

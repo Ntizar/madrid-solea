@@ -29,6 +29,7 @@ interface State {
   setIntroDone: (v: boolean) => void;
   setBuildingsLoaded: (v: boolean) => void;
   setSunStates: (m: Map<number, SunState>) => void;
+  updateSunState: (id: number, patch: Partial<SunState>) => void;
   setQuickSun: (u: Uint8Array | null) => void;
 }
 
@@ -51,5 +52,12 @@ export const useAppStore = create<State>((set) => ({
   setIntroDone: (v) => set({ introDone: v }),
   setBuildingsLoaded: (v) => set({ buildingsLoaded: v }),
   setSunStates: (m) => set({ sunStates: m }),
+  updateSunState: (id, patch) => set((s) => {
+    const cur = s.sunStates.get(id);
+    if (!cur) return s;
+    const next = new Map(s.sunStates);
+    next.set(id, { ...cur, ...patch });
+    return { sunStates: next };
+  }),
   setQuickSun: (u) => set({ quickSun: u })
 }));

@@ -24,7 +24,7 @@ export interface SunState {
   altitudeDeg: number;      // del sol en este momento
   azimuthDeg: number;       // 0 = N, 90 = E
   minutesLeft: number;      // minutos de sol restantes hoy en esta terraza
-  ribbon: number[];         // 48 medias horas, 0=sombra,1=sol,2=noche
+  ribbon?: number[];        // 48 medias horas, 0=sombra,1=sol,2=noche (lazy)
 }
 
 export interface BuildingPoly {
