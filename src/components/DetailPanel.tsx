@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useAppStore } from '../store/useAppStore';
 import { SunRhythm } from './SunRhythm';
@@ -24,6 +24,7 @@ export function DetailPanel() {
   const id = useAppStore((s) => s.selectedId);
   const terrazas = useAppStore((s) => s.terrazas);
   const sunStates = useAppStore((s) => s.sunStates);
+  const quickSun = useAppStore((s) => s.quickSun);
   const buildingsLoaded = useAppStore((s) => s.buildingsLoaded);
   const selectedDate = useAppStore((s) => s.selectedDate);
   const updateSunState = useAppStore((s) => s.updateSunState);
@@ -32,34 +33,54 @@ export function DetailPanel() {
   const t = id != null ? terrazas.find((x) => x.id === id) : null;
   const sun = id != null ? sunStates.get(id) : undefined;
 
-  // Cargar ribbon bajo demanda al abrir el detalle (o al cambiar fecha)
+  // Estado instantáneo desde quickSun (responde en <100ms al mover el slider)
+  const tIndex = id != null ? terrazas.findIndex((x) => x.id === id) : -1;
+  const quickState = tIndex >= 0 && quickSun ? quickSun[tIndex] : -1;
+  const quickSunNow = quickState === 1;
+  const quickNight = quickState === 2;
+
+  // Ribbon local: clave por (terrazaId, día). Refetch en cambio de día sin esperar.
+  const dayKey = selectedDate.toDateString();
+  const [localRibbon, setLocalRibbon] = useState<{ key: string; ribbon: number[] } | null>(null);
   useEffect(() => {
     if (!t || !buildingsLoaded) return;
-    if (sun?.ribbon) return;
+    const key = `${t.id}|${dayKey}`;
+    if (localRibbon?.key === key) return;
     let cancelled = false;
     (async () => {
       try {
-        const api = ribbonApi();
-        const r = await api.ribbonFor(t, selectedDate.toISOString());
-        if (!cancelled) updateSunState(t.id, { ribbon: r });
+        const r = await ribbonApi().ribbonFor(t, selectedDate.toISOString());
+        if (!cancelled) {
+          setLocalRibbon({ key, ribbon: r });
+          updateSunState(t.id, { ribbon: r });
+        }
       } catch (err) {
         // eslint-disable-next-line no-console
         console.warn('[ribbon] error', err);
       }
     })();
     return () => { cancelled = true; };
-  }, [t, sun?.ribbon, buildingsLoaded, selectedDate, updateSunState]);
+  }, [t, buildingsLoaded, dayKey, selectedDate, updateSunState, localRibbon?.key]);
 
-  // Estado humano
+  const ribbonToShow = localRibbon?.ribbon ?? sun?.ribbon;
+
+  // Estado humano: prioriza quickSun (instantáneo) sobre el bulk (debounced 600ms)
   const status = (() => {
+    // Quick disponible -> respuesta inmediata
+    if (quickState !== -1) {
+      if (quickNight) return { tag: '☾ Noche', cls: 'bg-night-500/40 text-paper' };
+      if (quickSunNow) return { tag: '☀ Sol ahora', cls: 'bg-sun-300 text-night-900' };
+      return { tag: '⛅ Sombra', cls: 'bg-night-500/40 text-paper' };
+    }
     if (!sun) return { tag: '⏳ Calculando', cls: 'bg-white/5 text-paper' };
     if (sun.altitudeDeg <= 0) return { tag: '☾ Noche', cls: 'bg-night-500/40 text-paper' };
     if (sun.sunNow) return { tag: '☀ Sol ahora', cls: 'bg-sun-300 text-night-900' };
     return { tag: '⛅ Sombra', cls: 'bg-night-500/40 text-paper' };
   })();
 
+  const sunNowEffective = quickState !== -1 ? quickSunNow : !!sun?.sunNow;
   const currentDirectMinutes = sun?.directMinutes ?? 0;
-  const sunUntil = sun && sun.sunNow && currentDirectMinutes > 0
+  const sunUntil = sun && sunNowEffective && currentDirectMinutes > 0
     ? addMinToDate(selectedDate, currentDirectMinutes)
     : null;
 
@@ -100,20 +121,21 @@ export function DetailPanel() {
             <div className={`mt-5 rounded-2xl px-4 py-4 ${status.cls}`}>
               <div className="flex items-baseline justify-between">
                 <span className="font-display text-2xl">{status.tag}</span>
-                {sun && sun.sunNow && (
+                {sun && sunNowEffective && currentDirectMinutes > 0 && (
                   <span className="font-mono text-lg tabular-nums">{fmtHM(currentDirectMinutes)}</span>
                 )}
               </div>
               <p className={`text-sm mt-1 ${status.cls.includes('night-900') ? 'text-night-900/75' : 'text-paper/75'}`}>
-                {!sun && 'Calculando sombras de los edificios cercanos…'}
-                {sun && !sun.sunNow && sun.altitudeDeg > 0 && sun.minutesLeft > 0 && (
+                {!sun && quickState === -1 && 'Calculando sombras de los edificios cercanos…'}
+                {!sun && quickState !== -1 && 'Detalle preciso en un instante…'}
+                {sun && !sunNowEffective && sun.altitudeDeg > 0 && sun.minutesLeft > 0 && (
                   <>Ahora a la sombra. Hoy aún tendrá <strong>{fmtHM(sun.minutesLeft)}</strong> de sol.</>
                 )}
-                {sun && !sun.sunNow && sun.altitudeDeg > 0 && sun.minutesLeft === 0 && (
+                {sun && !sunNowEffective && sun.altitudeDeg > 0 && sun.minutesLeft === 0 && (
                   <>A la sombra. No le da más sol antes del ocaso.</>
                 )}
                 {sun && sun.altitudeDeg <= 0 && 'El sol ya se ha puesto (o aún no ha salido).'}
-                {sun && sun.sunNow && sunUntil && (
+                {sun && sunNowEffective && sunUntil && (
                   <>Sol directo hasta aprox. <strong>{fmtTime(sunUntil)}</strong>.</>
                 )}
               </p>
@@ -121,7 +143,7 @@ export function DetailPanel() {
 
             <div className="mt-5">
               <p className="text-xs uppercase tracking-widest text-paper/60 mb-2">Ritmo solar de hoy</p>
-              <SunRhythm ribbon={sun?.ribbon} />
+              <SunRhythm ribbon={ribbonToShow} />
             </div>
 
             <div className="mt-5 grid grid-cols-3 gap-2 text-sm">
@@ -141,6 +163,12 @@ export function DetailPanel() {
               target="_blank" rel="noreferrer"
               className="mt-5 block text-center bg-sun-300 text-night-900 font-medium rounded-xl py-3.5 hover:bg-sun-100 transition shadow-glow"
             >🚶 Cómo llegar (Google Maps)</a>
+
+            <a
+              href={`https://github.com/Ntizar/solmad/issues/new?title=Precio%20ca%C3%B1a%20%E2%80%94%20${encodeURIComponent(t.name)}&body=${encodeURIComponent(`Terraza: ${t.name}\nDirección: ${t.via} ${t.num}\nPrecio caña (€): ?`)}`}
+              target="_blank" rel="noreferrer"
+              className="mt-2 block text-center bg-white/5 text-paper/80 rounded-xl py-2.5 text-sm hover:bg-white/10 transition border border-white/10"
+            >🍺 ¿Sabes el precio de la caña? Aporta</a>
 
             <p className="text-[10px] text-paper/40 mt-3 leading-relaxed">
               Sombras aproximadas con footprints de OpenStreetMap (altura por <em>building:levels</em> o 17 m por defecto).

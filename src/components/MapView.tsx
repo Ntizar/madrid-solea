@@ -119,7 +119,11 @@ export function MapView() {
 
     map.createPane('solmad-building-shadows');
     const shadowPane = map.getPane('solmad-building-shadows');
-    if (shadowPane) shadowPane.style.zIndex = '430';
+    if (shadowPane) {
+      shadowPane.style.zIndex = '430';
+      // Forzar GPU compositing: alivia el "lag" al pan/zoom en móvil.
+      shadowPane.style.willChange = 'transform';
+    }
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
@@ -212,21 +216,32 @@ export function MapView() {
     const layer = shadowLayerRef.current;
     if (!map || !layer) return;
 
-    const render = () => {
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    const MAX_DRAW = isMobile ? 220 : 900;
+    const MIN_ZOOM_FOR_SHADOWS = isMobile ? 14 : 13;
+    let rafId = 0;
+    let pending = false;
+    // Renderer canvas dedicado: mucho más fluido en móvil que SVG con cientos de polígonos
+    const canvasRenderer = L.canvas({ pane: 'solmad-building-shadows', padding: 0.2 });
+
+    const doRender = () => {
+      pending = false;
       layer.clearLayers();
       if (buildings.length === 0) return;
+      if (map.getZoom() < MIN_ZOOM_FOR_SHADOWS) return;
       const center = map.getCenter();
       const { az, alt } = sunAt(selectedDate, center.lat, center.lng);
       if (alt <= 1) return;
 
-      const bounds = map.getBounds().pad(0.28);
+      const bounds = map.getBounds().pad(isMobile ? 0.1 : 0.28);
       let drawn = 0;
       for (const building of buildings) {
-        if (drawn >= 900) break;
+        if (drawn >= MAX_DRAW) break;
         if (!ringTouchesBounds(building.ring, bounds)) continue;
         const poly = shadowLatLngs(building, az, alt);
         if (!poly) continue;
         L.polygon(poly, {
+          renderer: canvasRenderer,
           pane: 'solmad-building-shadows',
           interactive: false,
           stroke: false,
@@ -237,9 +252,18 @@ export function MapView() {
       }
     };
 
-    render();
-    map.on('moveend zoomend', render);
-    return () => { map.off('moveend zoomend', render); };
+    const schedule = () => {
+      if (pending) return;
+      pending = true;
+      rafId = window.requestAnimationFrame(doRender);
+    };
+
+    schedule();
+    map.on('moveend zoomend', schedule);
+    return () => {
+      map.off('moveend zoomend', schedule);
+      if (rafId) window.cancelAnimationFrame(rafId);
+    };
   }, [buildings, selectedDate]);
 
   useEffect(() => {

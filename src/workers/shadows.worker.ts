@@ -164,6 +164,29 @@ const api = {
     return ribbon;
   },
 
+  /** Estado de un único punto arbitrario (p. ej. la ubicación del usuario). */
+  pointAt(lat: number, lng: number, whenIso: string): { sunNow: boolean; altitudeDeg: number; azimuthDeg: number; directMinutes: number } {
+    if (!index) throw new Error('Buildings not loaded');
+    const when = new Date(whenIso);
+    const [ox, oy] = index.toM(lng, lat);
+    const { az, al } = sunPos(when, lat, lng);
+    const sunNow = al > 0 && isSunlit(ox, oy, az, al);
+    let directMinutes = 0;
+    if (sunNow) {
+      const times = SunCalc.getTimes(when, lat, lng);
+      const sunset = times.sunset;
+      if (sunset && when < sunset) {
+        const end = sunset.getTime();
+        for (let ts = when.getTime(); ts < end; ts += STEP_MIN * 60_000) {
+          const s = sunPos(new Date(ts), lat, lng);
+          if (s.al > 0 && isSunlit(ox, oy, s.az, s.al)) directMinutes += STEP_MIN;
+          else break;
+        }
+      }
+    }
+    return { sunNow, altitudeDeg: al, azimuthDeg: az, directMinutes };
+  },
+
   /** Quick: solo sunNow, para arrastre en vivo del slider. */
   quickFor(terrazas: Terraza[], whenIso: string): Uint8Array {
     if (!index) throw new Error('Buildings not loaded');

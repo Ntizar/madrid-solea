@@ -8,10 +8,13 @@ import { SideList } from './components/SideList';
 import { SurpriseButton } from './components/SurpriseButton';
 import { FloatingTimeControl } from './components/FloatingTimeControl';
 import { LocationButton } from './components/LocationButton';
+import { MeNowBadge } from './components/MeNowBadge';
 import { useAppStore } from './store/useAppStore';
 import { loadTerrazas, bbox } from './lib/terrazas';
 import { fetchBuildings } from './lib/buildings';
 import { shadowsApi, ribbonApi } from './workers/shadowsClient';
+
+const GEO_CACHE_KEY = 'solmad:userLocation:v1';
 
 export function App() {
   const introDone = useAppStore((s) => s.introDone);
@@ -34,14 +37,26 @@ export function App() {
   // Hidrata ubicación si ya estaba concedida. La petición nueva vive en LocationButton (gesto de usuario).
   useEffect(() => {
     if (!introDone) return;
+    // 1) Restaura desde localStorage (sobrevive a reloads en Vercel mientras se concede el permiso)
+    try {
+      const cached = localStorage.getItem(GEO_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && typeof parsed.lat === 'number' && typeof parsed.lng === 'number' && Date.now() - (parsed.t ?? 0) < 7 * 24 * 60 * 60 * 1000) {
+          setUserLocation({ lat: parsed.lat, lng: parsed.lng });
+        }
+      }
+    } catch { /* ignore */ }
     if (!('geolocation' in navigator)) { setGeoStatus('unavailable'); return; }
     if (!navigator.permissions?.query) return;
     navigator.permissions.query({ name: 'geolocation' as PermissionName }).then((permission) => {
       if (permission.state !== 'granted') return;
       navigator.geolocation.getCurrentPosition(
         (pos) => {
-          setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          setUserLocation(loc);
           setGeoStatus('granted');
+          try { localStorage.setItem(GEO_CACHE_KEY, JSON.stringify({ ...loc, t: Date.now() })); } catch { /* ignore */ }
         },
         () => { setGeoStatus('denied'); },
         { enableHighAccuracy: true, timeout: 8000, maximumAge: 60_000 }
@@ -122,24 +137,26 @@ export function App() {
       {/* UI flotante */}
       <SurpriseButton />
       <LocationButton />
+      <MeNowBadge />
       <SideList />
       <FloatingTimeControl />
       <DetailPanel />
 
-      <div className="fixed bottom-0 left-0 right-0 z-20 pb-3 pb-safe pointer-events-none">
+      <div className="fixed bottom-0 left-0 right-0 z-20 pb-safe pointer-events-none">
         <TimeWheel />
+        {/* Créditos: hecho con amor por David Antizar — debajo de todo */}
+        <div className="pointer-events-auto text-center pt-1.5 pb-1 px-2 bg-night-900/70 backdrop-blur-sm">
+          <a
+            href="https://github.com/Ntizar/solmad"
+            target="_blank" rel="noreferrer"
+            className="text-[10px] text-paper/65 hover:text-sun-300 transition tracking-wide font-display"
+          >
+            Hecho con ♥ por <strong className="text-paper/80">David Antizar</strong> · datos OSM + Madrid Abierto
+          </a>
+        </div>
       </div>
 
       <AnimatePresence>{!introDone && <Intro />}</AnimatePresence>
-
-      {/* Créditos: hecho con amor por David Antizar */}
-      <a
-        href="https://github.com/Ntizar/solmad"
-        target="_blank" rel="noreferrer"
-        className="fixed right-4 bottom-[116px] z-20 rounded-full bg-paper/90 text-night-900 border border-night-900/10 shadow-xl backdrop-blur px-3 py-1.5 text-[11px] hover:bg-white transition tracking-wide font-display"
-      >
-        Hecho con ♥ por <strong className="text-night-900/85">David Antizar</strong> para los disfrutones de Madrid
-      </a>
     </div>
   );
 }
