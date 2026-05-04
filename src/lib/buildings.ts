@@ -5,7 +5,7 @@ const ENDPOINTS = [
   'https://overpass.kumi.systems/api/interpreter',
   'https://overpass.osm.ch/api/interpreter'
 ];
-const DEFAULT_HEIGHT_M = 17; // ≈ 5 plantas, fallback Madrid centro
+const DEFAULT_HEIGHT_M = 10; // fallback prudente: evita sombras falsas en edificios sin altura OSM
 const LEVEL_HEIGHT_M = 3.2;
 const CACHE_KEY = 'solmad:buildings:v3';
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24; // 24h

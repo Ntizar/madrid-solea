@@ -103,6 +103,7 @@ export function MapView() {
   const selectedDate = useAppStore((s) => s.selectedDate);
   const setSelectedId = useAppStore((s) => s.setSelectedId);
   const setHoveredId = useAppStore((s) => s.setHoveredId);
+  const setVisibleIds = useAppStore((s) => s.setVisibleIds);
   const userLocation = useAppStore((s) => s.userLocation);
 
   const [tilesLoaded, setTilesLoaded] = useState(false);
@@ -313,7 +314,8 @@ export function MapView() {
     terrazas.forEach((terraza, index) => {
       const marker = terraceMarkersRef.current.get(terraza.id);
       if (!marker) return;
-      const state = quickSun ? quickSun[index] : -1;
+      const rawState = quickSun ? quickSun[index] : 255;
+      const state = rawState === 255 ? -1 : rawState;
       if (markerStatesRef.current.get(terraza.id) === state) return;
       markerStatesRef.current.set(terraza.id, state);
       (marker.options as any).sunny = state === 1;
@@ -322,6 +324,30 @@ export function MapView() {
     });
     layer.refreshClusters();
   }, [terrazas, quickSun, sunIcon, shadowIcon, pendingIcon]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || terrazas.length === 0) return;
+    let rafId = 0;
+    const publishVisible = () => {
+      const bounds = map.getBounds().pad(0.08);
+      const ids = terrazas
+        .filter((t) => bounds.contains([t.lat, t.lng]))
+        .slice(0, 300)
+        .map((t) => t.id);
+      setVisibleIds(ids);
+    };
+    const schedule = () => {
+      if (rafId) window.cancelAnimationFrame(rafId);
+      rafId = window.requestAnimationFrame(publishVisible);
+    };
+    schedule();
+    map.on('moveend zoomend', schedule);
+    return () => {
+      map.off('moveend zoomend', schedule);
+      if (rafId) window.cancelAnimationFrame(rafId);
+    };
+  }, [terrazas, setVisibleIds]);
 
   useEffect(() => {
     const layer = userLayerRef.current;

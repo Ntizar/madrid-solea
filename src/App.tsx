@@ -14,8 +14,33 @@ import { useAppStore } from './store/useAppStore';
 import { loadTerrazas, bbox } from './lib/terrazas';
 import { fetchBuildings } from './lib/buildings';
 import { shadowsApi, ribbonApi } from './workers/shadowsClient';
+import type { Terraza } from './lib/types';
 
 const GEO_CACHE_KEY = 'solmad:userLocation:v1';
+const QUICK_LIMIT = 260;
+
+function dist2(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+  const dx = a.lng - b.lng;
+  const dy = a.lat - b.lat;
+  return dx * dx + dy * dy;
+}
+
+function slotKey(date: Date) {
+  const d = new Date(date);
+  const mins = d.getHours() * 60 + d.getMinutes();
+  const rounded = Math.round(mins / 15) * 15;
+  d.setHours(Math.floor(rounded / 60), rounded % 60, 0, 0);
+  return d.toISOString();
+}
+
+function uniqueById(items: Terraza[]) {
+  const seen = new Set<number>();
+  return items.filter((t) => {
+    if (seen.has(t.id)) return false;
+    seen.add(t.id);
+    return true;
+  });
+}
 
 export function App() {
   const introDone = useAppStore((s) => s.introDone);
@@ -24,8 +49,14 @@ export function App() {
   const setTerrazas = useAppStore((s) => s.setTerrazas);
   const setBuildings = useAppStore((s) => s.setBuildings);
   const setBuildingsLoaded = useAppStore((s) => s.setBuildingsLoaded);
-  const setSunStates = useAppStore((s) => s.setSunStates);
+  const mergeSunStates = useAppStore((s) => s.mergeSunStates);
   const setQuickSun = useAppStore((s) => s.setQuickSun);
+  const resetSunStates = useAppStore((s) => s.resetSunStates);
+  const visibleIds = useAppStore((s) => s.visibleIds);
+  const selectedId = useAppStore((s) => s.selectedId);
+  const userLocation = useAppStore((s) => s.userLocation);
+  const sunStateCache = useAppStore((s) => s.sunStateCache);
+  const setSunStateCacheEntries = useAppStore((s) => s.setSunStateCacheEntries);
   const setUserLocation = useAppStore((s) => s.setUserLocation);
   const setGeoStatus = useAppStore((s) => s.setGeoStatus);
   const selectedDate = useAppStore((s) => s.selectedDate);
@@ -126,36 +157,76 @@ export function App() {
     })();
   }, [setTerrazas, setBuildings, setBuildingsLoaded]);
 
-  // 2) Recálculo "rápido" (solo sunNow) cuando se mueve el slider — debounced 80ms
+  const computeTargets = () => {
+    const visibleSet = new Set(visibleIds);
+    const visible = terrazas.filter((t) => visibleSet.has(t.id));
+    const selected = selectedId != null ? terrazas.find((t) => t.id === selectedId) : null;
+    const nearby = userLocation
+      ? [...terrazas].sort((a, b) => dist2(a, userLocation) - dist2(b, userLocation)).slice(0, 10)
+      : [];
+    const fallback = visible.length ? visible : terrazas.slice(0, 120);
+    return uniqueById([...(selected ? [selected] : []), ...nearby, ...fallback]).slice(0, QUICK_LIMIT);
+  };
+
+  // 2) Recálculo ligero: solo terrazas visibles, seleccionada y 10 cercanas.
   useEffect(() => {
     if (!buildingsLoaded || terrazas.length === 0) return;
+    const targets = computeTargets();
+    if (targets.length === 0) return;
     const seq = ++quickSeqRef.current;
     setQuickSun(null);
     if (quickDebRef.current) clearTimeout(quickDebRef.current);
     quickDebRef.current = window.setTimeout(async () => {
       const api = shadowsApi();
-      const u = await api.quickFor(terrazas, selectedDate.toISOString());
-      if (seq === quickSeqRef.current) setQuickSun(u);
-    }, 80);
+      const partial = await api.quickFor(targets, selectedDate.toISOString());
+      if (seq !== quickSeqRef.current) return;
+      const u = new Uint8Array(terrazas.length);
+      u.fill(255);
+      targets.forEach((t, index) => {
+        const globalIndex = terrazas.findIndex((x) => x.id === t.id);
+        if (globalIndex >= 0) u[globalIndex] = partial[index];
+      });
+      setQuickSun(u);
+    }, 100);
     return () => { if (quickDebRef.current) clearTimeout(quickDebRef.current); };
-  }, [selectedDate, terrazas, buildingsLoaded, setQuickSun]);
+  }, [selectedDate, terrazas, buildingsLoaded, visibleIds, selectedId, userLocation, setQuickSun]);
 
-  // 3) Recálculo "completo" (minutosLeft + ribbon) tras 600ms sin cambios
+  // 3) Recálculo completo cacheado por franja de 15 min solo para objetivos prioritarios.
   useEffect(() => {
     if (!buildingsLoaded || terrazas.length === 0) return;
+    const targets = computeTargets();
+    if (targets.length === 0) return;
     const seq = ++fullSeqRef.current;
-    setSunStates(new Map());
     if (fullDebRef.current) clearTimeout(fullDebRef.current);
     fullDebRef.current = window.setTimeout(async () => {
+      const keyDate = slotKey(selectedDate);
+      const cachedEntries: Array<[number, any]> = [];
+      const missing: Terraza[] = [];
+      for (const t of targets) {
+        const cached = sunStateCache.get(`${t.id}|${keyDate}`);
+        if (cached) cachedEntries.push([t.id, cached]);
+        else missing.push(t);
+      }
+      if (cachedEntries.length) mergeSunStates(cachedEntries);
+      if (missing.length === 0) return;
       const api = shadowsApi();
-      const states = await api.computeFor(terrazas, selectedDate.toISOString());
+      const states = await api.computeSubset(missing, selectedDate.toISOString());
       if (seq !== fullSeqRef.current) return;
-      const map = new Map<number, typeof states[number]>();
-      terrazas.forEach((t, i) => map.set(t.id, states[i]));
-      setSunStates(map);
-    }, 600);
+      const entries: Array<[number, typeof states[number]]> = [];
+      const cacheEntries: Array<[string, typeof states[number]]> = [];
+      missing.forEach((t, i) => {
+        entries.push([t.id, states[i]]);
+        cacheEntries.push([`${t.id}|${keyDate}`, states[i]]);
+      });
+      setSunStateCacheEntries(cacheEntries);
+      mergeSunStates(entries);
+    }, 260);
     return () => { if (fullDebRef.current) clearTimeout(fullDebRef.current); };
-  }, [selectedDate, terrazas, buildingsLoaded, setSunStates]);
+  }, [selectedDate, terrazas, buildingsLoaded, visibleIds, selectedId, userLocation, sunStateCache, mergeSunStates, setSunStateCacheEntries]);
+
+  useEffect(() => {
+    resetSunStates();
+  }, [selectedDate, resetSunStates]);
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-night-700">

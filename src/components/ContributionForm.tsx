@@ -6,6 +6,8 @@ export function ContributionForm({ terraza }: { terraza: Terraza }) {
   const [contributorName, setContributorName] = useState('');
   const [beerBrand, setBeerBrand] = useState('');
   const [price, setPrice] = useState('');
+  const [sunFrom, setSunFrom] = useState('');
+  const [sunTo, setSunTo] = useState('');
   const [comment, setComment] = useState('');
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [message, setMessage] = useState<string | null>(null);
@@ -27,6 +29,8 @@ export function ContributionForm({ terraza }: { terraza: Terraza }) {
         contributorName: contributorName.trim(),
         beerBrand: beerBrand.trim(),
         price: Math.round(numericPrice * 100) / 100,
+        sunFrom: sunFrom || undefined,
+        sunTo: sunTo || undefined,
         comment: comment.trim() || undefined
       });
       setStatus('saved');
@@ -34,6 +38,8 @@ export function ContributionForm({ terraza }: { terraza: Terraza }) {
       setContributorName('');
       setBeerBrand('');
       setPrice('');
+      setSunFrom('');
+      setSunTo('');
       setComment('');
     } catch (err) {
       setStatus('error');
@@ -51,6 +57,7 @@ export function ContributionForm({ terraza }: { terraza: Terraza }) {
         <span className="text-2xl" aria-hidden="true">🍺</span>
       </div>
 
+      <p className="mt-2 text-xs text-paper/50">Precio obligatorio. Horario de sol opcional si lo estas viendo en persona.</p>
       <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
         <label className="text-xs text-paper/65">
           Tu nombre
@@ -81,6 +88,24 @@ export function ContributionForm({ terraza }: { terraza: Terraza }) {
             maxLength={8}
             className="mt-1 w-full rounded-xl bg-night-900/55 border border-white/10 px-3 py-2 text-paper placeholder:text-paper/35 outline-none focus:border-sun-300/80"
             placeholder="2,80"
+          />
+        </label>
+        <label className="text-xs text-paper/65">
+          Sol desde
+          <input
+            type="time"
+            value={sunFrom}
+            onChange={(e) => setSunFrom(e.target.value)}
+            className="mt-1 w-full rounded-xl bg-night-900/55 border border-white/10 px-3 py-2 text-paper placeholder:text-paper/35 outline-none focus:border-sun-300/80"
+          />
+        </label>
+        <label className="text-xs text-paper/65">
+          Sol hasta
+          <input
+            type="time"
+            value={sunTo}
+            onChange={(e) => setSunTo(e.target.value)}
+            className="mt-1 w-full rounded-xl bg-night-900/55 border border-white/10 px-3 py-2 text-paper placeholder:text-paper/35 outline-none focus:border-sun-300/80"
           />
         </label>
         <label className="text-xs text-paper/65">

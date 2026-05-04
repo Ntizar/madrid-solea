@@ -67,6 +67,8 @@ CONTRIBUTIONS_PATH=data/contributions.json
 
 `SOLMAD_GITHUB_TOKEN` debe ser un secreto de Vercel, nunca codigo cliente. El endpoint `/api/contribute` lo usa para escribir en `data/contributions.json` mediante la API de GitHub.
 
+Para sacarlo: GitHub → Settings → Developer settings → Personal access tokens → Fine-grained token. Dale acceso solo al repo `Ntizar/solmad` y permiso **Contents: Read and write**. Despues pegalo en Vercel como `SOLMAD_GITHUB_TOKEN` en Production, Preview y Development si quieres probarlo todo.
+
 El script `prepare:data` se ejecuta antes de `dev` y `build`. Lee el JSON bruto del Ayuntamiento, limpia strings, filtra locales abiertos, reproyecta coordenadas `EPSG:25830 -> WGS84` y genera:
 
 ```text

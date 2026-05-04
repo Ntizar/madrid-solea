@@ -3,7 +3,7 @@ import SunCalc from 'suncalc';
 import type { BuildingPoly, SunState, Terraza } from '../lib/types';
 
 const M_PER_DEG_LAT = 111_320;
-const RAY_LEN_M = 250;
+const RAY_LEN_M = 420;
 const STEP_MIN = 10;
 const RIBBON_STEP_MIN = 30;
 
@@ -146,6 +146,11 @@ const api = {
       results[i] = { sunNow, altitudeDeg: altNow, azimuthDeg: azNow, minutesLeft, directMinutes };
     }
     return results;
+  },
+
+  /** Bulk pequeño: estado completo solo para ids priorizados (visible/cercanos). */
+  computeSubset(terrazas: Terraza[], whenIso: string): SunState[] {
+    return api.computeFor(terrazas, whenIso);
   },
 
   /** Ribbon de 48 medias horas para una sola terraza (lazy en el detalle). */

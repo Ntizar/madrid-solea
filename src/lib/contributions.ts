@@ -4,6 +4,8 @@ export interface ContributionPayload {
   contributorName: string;
   beerBrand: string;
   price: number;
+  sunFrom?: string;
+  sunTo?: string;
   comment?: string;
 }
 

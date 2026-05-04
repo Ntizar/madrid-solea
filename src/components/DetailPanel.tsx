@@ -38,7 +38,8 @@ export function DetailPanel() {
 
   // Estado instantáneo desde quickSun (responde en <100ms al mover el slider)
   const tIndex = id != null ? terrazas.findIndex((x) => x.id === id) : -1;
-  const quickState = tIndex >= 0 && quickSun ? quickSun[tIndex] : -1;
+  const rawQuickState = tIndex >= 0 && quickSun ? quickSun[tIndex] : 255;
+  const quickState = rawQuickState === 255 ? -1 : rawQuickState;
   const quickSunNow = quickState === 1;
   const quickNight = quickState === 2;
 

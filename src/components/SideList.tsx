@@ -43,6 +43,7 @@ export function SideList() {
       })
       .slice(0, 80);
   }, [terrazas, sunStates, filters]);
+  const pendingCount = Math.max(0, terrazas.length - sunStates.size);
 
   return (
     <>
@@ -112,9 +113,9 @@ export function SideList() {
                 />
                 Sólo con sol ahora mismo
               </label>
-              {!ready && (
-                <p className="text-xs text-paper/60 italic">Calculando sombras… (~2 s)</p>
-              )}
+              <p className="text-xs text-paper/60 italic">
+                {ready ? `Calculado lo visible. El resto aparece al moverte por el mapa (${pendingCount} pendientes).` : 'Calculando terrazas visibles y cercanas…'}
+              </p>
             </div>
 
             <ul className="flex-1 overflow-y-auto divide-y divide-white/5">

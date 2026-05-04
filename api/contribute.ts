@@ -14,6 +14,8 @@ interface Contribution {
   contributorName: string;
   beerBrand: string;
   price: number;
+  sunFrom?: string;
+  sunTo?: string;
   comment?: string;
   createdAt: string;
 }
@@ -21,6 +23,11 @@ interface Contribution {
 function cleanText(value: unknown, max = 140) {
   if (typeof value !== 'string') return '';
   return value.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, max);
+}
+
+function cleanTime(value: unknown) {
+  if (typeof value !== 'string') return undefined;
+  return /^\d{2}:\d{2}$/.test(value) ? value : undefined;
 }
 
 function fail(res: VercelResponse, code: number, error: string) {
@@ -64,6 +71,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     contributorName: cleanText(body.contributorName, 60),
     beerBrand: cleanText(body.beerBrand, 60),
     price: Math.round(price * 100) / 100,
+    sunFrom: cleanTime(body.sunFrom),
+    sunTo: cleanTime(body.sunTo),
     comment: cleanText(body.comment, 140) || undefined,
     createdAt: new Date().toISOString()
   };

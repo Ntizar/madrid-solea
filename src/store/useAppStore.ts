@@ -15,6 +15,8 @@ interface State {
   sunStates: Map<number, SunState>;
   quickSun: Uint8Array | null;
   ribbonCache: Map<string, number[]>;
+  visibleIds: number[];
+  sunStateCache: Map<string, SunState>;
   selectedDate: Date;        // hora "ahora mismo" o la elegida en el slider
   isLive: boolean;           // true = sigue al reloj real
   selectedId: number | null;
@@ -34,9 +36,14 @@ interface State {
   setIntroDone: (v: boolean) => void;
   setBuildingsLoaded: (v: boolean) => void;
   setSunStates: (m: Map<number, SunState>) => void;
+  mergeSunStates: (entries: Array<[number, SunState]>) => void;
   updateSunState: (id: number, patch: Partial<SunState>) => void;
   setQuickSun: (u: Uint8Array | null) => void;
   setRibbonCache: (key: string, ribbon: number[]) => void;
+  setVisibleIds: (ids: number[]) => void;
+  setSunStateCache: (key: string, state: SunState) => void;
+  setSunStateCacheEntries: (entries: Array<[string, SunState]>) => void;
+  resetSunStates: () => void;
   setUserLocation: (loc: { lat: number; lng: number } | null) => void;
   setGeoStatus: (s: 'idle' | 'asking' | 'granted' | 'denied' | 'unavailable') => void;
 }
@@ -47,6 +54,8 @@ export const useAppStore = create<State>((set) => ({
   sunStates: new Map(),
   quickSun: null,
   ribbonCache: new Map(),
+  visibleIds: [],
+  sunStateCache: new Map(),
   selectedDate: new Date(),
   isLive: true,
   selectedId: null,
@@ -65,6 +74,11 @@ export const useAppStore = create<State>((set) => ({
   setIntroDone: (v) => set({ introDone: v }),
   setBuildingsLoaded: (v) => set({ buildingsLoaded: v }),
   setSunStates: (m) => set({ sunStates: m }),
+  mergeSunStates: (entries) => set((s) => {
+    const next = new Map(s.sunStates);
+    for (const [id, state] of entries) next.set(id, state);
+    return { sunStates: next };
+  }),
   updateSunState: (id, patch) => set((s) => {
     const cur = s.sunStates.get(id);
     if (!cur) return s;
@@ -78,6 +92,18 @@ export const useAppStore = create<State>((set) => ({
     next.set(key, ribbon);
     return { ribbonCache: next };
   }),
+  setVisibleIds: (ids) => set({ visibleIds: ids }),
+  setSunStateCache: (key, state) => set((s) => {
+    const next = new Map(s.sunStateCache);
+    next.set(key, state);
+    return { sunStateCache: next };
+  }),
+  setSunStateCacheEntries: (entries) => set((s) => {
+    const next = new Map(s.sunStateCache);
+    for (const [key, state] of entries) next.set(key, state);
+    return { sunStateCache: next };
+  }),
+  resetSunStates: () => set({ sunStates: new Map(), quickSun: null }),
   setUserLocation: (loc) => set({ userLocation: loc }),
   setGeoStatus: (s) => set({ geoStatus: s })
 }));
