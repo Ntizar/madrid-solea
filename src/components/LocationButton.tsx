@@ -13,20 +13,8 @@ export function LocationButton() {
 
   const locate = (fly = true) => {
     setErrMsg(null);
-    if (userLocation) {
+    if (userLocation && geoStatus === 'granted') {
       if (fly) flyToUser(userLocation.lat, userLocation.lng);
-      if (navigator.geolocation && window.isSecureContext) {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-            setUserLocation(loc);
-            setGeoStatus('granted');
-            try { localStorage.setItem(GEO_CACHE_KEY, JSON.stringify({ ...loc, t: Date.now() })); } catch { /* ignore */ }
-          },
-          () => undefined,
-          { enableHighAccuracy: true, timeout: 8000, maximumAge: 60_000 }
-        );
-      }
       return;
     }
     if (!window.isSecureContext) { setGeoStatus('unavailable'); setErrMsg('Necesita HTTPS'); return; }
@@ -43,7 +31,7 @@ export function LocationButton() {
     const onErrorFinal = (err: GeolocationPositionError) => {
       setGeoStatus(err.code === err.PERMISSION_DENIED ? 'denied' : 'unavailable');
       setErrMsg(
-        err.code === err.PERMISSION_DENIED ? 'Permiso denegado'
+        err.code === err.PERMISSION_DENIED ? 'Permiso bloqueado. iPhone: Ajustes > Safari > Ubicacion > Permitir'
         : err.code === err.POSITION_UNAVAILABLE ? 'Sin señal GPS'
         : err.code === err.TIMEOUT ? 'Tardó demasiado'
         : 'Error de ubicación'
@@ -65,7 +53,7 @@ export function LocationButton() {
   if (userLocation && geoStatus === 'granted') return null;
 
   const label = userLocation
-    ? 'Mi ubicación'
+    ? geoStatus === 'granted' ? 'Mi ubicación' : 'Reactivar ubicación'
     : geoStatus === 'asking'
       ? 'Buscando…'
       : errMsg ?? 'Usar mi ubicación';
@@ -78,9 +66,9 @@ export function LocationButton() {
     <button
       onClick={() => locate()}
       disabled={geoStatus === 'asking'}
-      className={`fixed top-16 right-4 z-30 rounded-full bg-paper/92 text-night-900 border border-night-900/10 shadow-xl backdrop-blur px-4 py-2 text-sm font-medium hover:bg-white transition disabled:opacity-70 max-w-[55vw] truncate ${hideOnMobile ? 'hidden sm:inline-flex' : ''}`}
+      className={`fixed top-16 right-4 z-30 rounded-full bg-paper/92 text-night-900 border border-night-900/10 shadow-xl backdrop-blur px-4 py-2 text-xs sm:text-sm font-medium hover:bg-white transition disabled:opacity-70 max-w-[78vw] sm:max-w-[55vw] truncate ${hideOnMobile ? 'hidden sm:inline-flex' : ''}`}
       aria-label="Usar mi ubicación"
-      title={errMsg ?? (geoStatus === 'denied' ? 'Activa el permiso de ubicación del navegador para solmad.vercel.app' : undefined)}
+      title={errMsg ?? (geoStatus === 'denied' ? 'iPhone: Ajustes > Safari > Ubicación > Permitir, o Ajustes > Privacidad y seguridad > Localización' : undefined)}
     >
       ⌖ {label}
     </button>

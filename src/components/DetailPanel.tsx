@@ -31,6 +31,7 @@ export function DetailPanel() {
   const updateSunState = useAppStore((s) => s.updateSunState);
   const ribbonCache = useAppStore((s) => s.ribbonCache);
   const setRibbonCache = useAppStore((s) => s.setRibbonCache);
+  const selectedPending = useAppStore((s) => s.selectedPending);
   const close = useAppStore((s) => s.setSelectedId);
 
   const t = id != null ? terrazas.find((x) => x.id === id) : null;
@@ -83,7 +84,7 @@ export function DetailPanel() {
       if (quickSunNow) return { tag: '☀ Sol ahora', cls: 'bg-sun-300 text-night-900' };
       return { tag: '⛅ Sombra', cls: 'bg-night-500/40 text-paper' };
     }
-    if (!sun) return { tag: '⏳ Calculando', cls: 'bg-white/5 text-paper' };
+    if (!sun) return { tag: selectedPending ? '⏳ Calculando este bar' : '⏳ Calculando', cls: 'bg-white/5 text-paper' };
     if (sun.altitudeDeg <= 0) return { tag: '☾ Noche', cls: 'bg-night-500/40 text-paper' };
     if (sun.sunNow) return { tag: '☀ Sol ahora', cls: 'bg-sun-300 text-night-900' };
     return { tag: '⛅ Sombra', cls: 'bg-night-500/40 text-paper' };
@@ -137,7 +138,7 @@ export function DetailPanel() {
                 )}
               </div>
               <p className={`text-sm mt-1 ${status.cls.includes('night-900') ? 'text-night-900/75' : 'text-paper/75'}`}>
-                {!sun && quickState === -1 && 'Calculando sombras de los edificios cercanos…'}
+                {!sun && quickState === -1 && 'Prioridad máxima: calculando este bar antes que el mapa.'}
                 {!sun && quickState !== -1 && 'Detalle preciso en un instante…'}
                 {sun && !sunNowEffective && sun.altitudeDeg > 0 && sun.minutesLeft > 0 && (
                   <>Ahora a la sombra. Hoy aún tendrá <strong>{fmtHM(sun.minutesLeft)}</strong> de sol.</>

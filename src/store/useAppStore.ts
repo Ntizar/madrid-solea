@@ -17,6 +17,7 @@ interface State {
   ribbonCache: Map<string, number[]>;
   visibleIds: number[];
   sunStateCache: Map<string, SunState>;
+  selectedPending: boolean;
   selectedDate: Date;        // hora "ahora mismo" o la elegida en el slider
   isLive: boolean;           // true = sigue al reloj real
   selectedId: number | null;
@@ -43,6 +44,7 @@ interface State {
   setVisibleIds: (ids: number[]) => void;
   setSunStateCache: (key: string, state: SunState) => void;
   setSunStateCacheEntries: (entries: Array<[string, SunState]>) => void;
+  setSelectedPending: (v: boolean) => void;
   resetSunStates: () => void;
   setUserLocation: (loc: { lat: number; lng: number } | null) => void;
   setGeoStatus: (s: 'idle' | 'asking' | 'granted' | 'denied' | 'unavailable') => void;
@@ -56,6 +58,7 @@ export const useAppStore = create<State>((set) => ({
   ribbonCache: new Map(),
   visibleIds: [],
   sunStateCache: new Map(),
+  selectedPending: false,
   selectedDate: new Date(),
   isLive: true,
   selectedId: null,
@@ -103,6 +106,7 @@ export const useAppStore = create<State>((set) => ({
     for (const [key, state] of entries) next.set(key, state);
     return { sunStateCache: next };
   }),
+  setSelectedPending: (v) => set({ selectedPending: v }),
   resetSunStates: () => set({ sunStates: new Map(), quickSun: null }),
   setUserLocation: (loc) => set({ userLocation: loc }),
   setGeoStatus: (s) => set({ geoStatus: s })

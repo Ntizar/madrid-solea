@@ -9,12 +9,12 @@ import { SurpriseButton } from './components/SurpriseButton';
 import { FloatingTimeControl } from './components/FloatingTimeControl';
 import { LocationButton } from './components/LocationButton';
 import { MeNowBadge } from './components/MeNowBadge';
-import { LegalNotice } from './components/LegalNotice';
 import { useAppStore } from './store/useAppStore';
 import { loadTerrazas, bbox } from './lib/terrazas';
 import { fetchBuildings } from './lib/buildings';
 import { shadowsApi, ribbonApi } from './workers/shadowsClient';
 import type { Terraza } from './lib/types';
+import { fetchRemoteSunCache, getLocalSunCache, saveRemoteSunCache, setLocalSunCache, type CachedSunState } from './lib/sunCache';
 
 const GEO_CACHE_KEY = 'solmad:userLocation:v1';
 const QUICK_LIMIT = 260;
@@ -25,12 +25,16 @@ function dist2(a: { lat: number; lng: number }, b: { lat: number; lng: number })
   return dx * dx + dy * dy;
 }
 
-function slotKey(date: Date) {
+function sunCacheKey(terrazaId: number, date: Date) {
   const d = new Date(date);
   const mins = d.getHours() * 60 + d.getMinutes();
   const rounded = Math.round(mins / 15) * 15;
-  d.setHours(Math.floor(rounded / 60), rounded % 60, 0, 0);
-  return d.toISOString();
+  const day = Math.floor((Date.UTC(2000, d.getMonth(), d.getDate()) - Date.UTC(2000, 0, 0)) / 86_400_000);
+  return `${terrazaId}|${day}|${rounded}`;
+}
+
+function toCachedSunState(id: number, key: string, state: CachedSunState | any): CachedSunState {
+  return { id, key, ...state, updatedAt: new Date().toISOString() };
 }
 
 function uniqueById(items: Terraza[]) {
@@ -57,7 +61,8 @@ export function App() {
   const userLocation = useAppStore((s) => s.userLocation);
   const sunStateCache = useAppStore((s) => s.sunStateCache);
   const setSunStateCacheEntries = useAppStore((s) => s.setSunStateCacheEntries);
-  const setUserLocation = useAppStore((s) => s.setUserLocation);
+  const setRibbonCache = useAppStore((s) => s.setRibbonCache);
+  const setSelectedPending = useAppStore((s) => s.setSelectedPending);
   const setGeoStatus = useAppStore((s) => s.setGeoStatus);
   const selectedDate = useAppStore((s) => s.selectedDate);
   const [appStarted, setAppStarted] = useState(false);
@@ -66,23 +71,9 @@ export function App() {
   const quickDebRef = useRef<number | null>(null);
   const fullSeqRef = useRef(0);
   const quickSeqRef = useRef(0);
+  const selectedSeqRef = useRef(0);
 
-  const requestUserLocation = () => {
-    if (!window.isSecureContext || !('geolocation' in navigator)) { setGeoStatus('unavailable'); return; }
-    setGeoStatus('asking');
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        setUserLocation(loc);
-        setGeoStatus('granted');
-        try { localStorage.setItem(GEO_CACHE_KEY, JSON.stringify({ ...loc, t: Date.now() })); } catch { /* ignore */ }
-      },
-      (err) => { setGeoStatus(err.code === err.PERMISSION_DENIED ? 'denied' : 'unavailable'); },
-      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 60_000 }
-    );
-  };
-
-  // Hidrata ubicación si ya estaba concedida. La primera petición vive en el CTA de Intro.
+  // Hidrata ubicación concedida/caché. La petición nueva queda solo en LocationButton.
   useEffect(() => {
     if (!introDone) return;
     setAppStarted(true);
@@ -92,7 +83,7 @@ export function App() {
       if (cached) {
         const parsed = JSON.parse(cached);
         if (parsed && typeof parsed.lat === 'number' && typeof parsed.lng === 'number' && Date.now() - (parsed.t ?? 0) < 7 * 24 * 60 * 60 * 1000) {
-          setUserLocation({ lat: parsed.lat, lng: parsed.lng });
+          useAppStore.getState().setUserLocation({ lat: parsed.lat, lng: parsed.lng });
         }
       }
     } catch { /* ignore */ }
@@ -107,7 +98,7 @@ export function App() {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-          setUserLocation(loc);
+          useAppStore.getState().setUserLocation(loc);
           setGeoStatus('granted');
           try { localStorage.setItem(GEO_CACHE_KEY, JSON.stringify({ ...loc, t: Date.now() })); } catch { /* ignore */ }
         },
@@ -115,11 +106,10 @@ export function App() {
         { enableHighAccuracy: true, timeout: 8000, maximumAge: 60_000 }
       );
     }).catch(() => undefined);
-  }, [introDone, setUserLocation, setGeoStatus]);
+  }, [introDone, setGeoStatus]);
 
   const startApp = () => {
     setAppStarted(true);
-    requestUserLocation();
   };
 
   // 1) Cargar terrazas y luego edificios + worker
@@ -199,27 +189,42 @@ export function App() {
     const seq = ++fullSeqRef.current;
     if (fullDebRef.current) clearTimeout(fullDebRef.current);
     fullDebRef.current = window.setTimeout(async () => {
-      const keyDate = slotKey(selectedDate);
-      const cachedEntries: Array<[number, any]> = [];
+      const cachedEntries: Array<[number, CachedSunState]> = [];
       const missing: Terraza[] = [];
       for (const t of targets) {
-        const cached = sunStateCache.get(`${t.id}|${keyDate}`);
+        const key = sunCacheKey(t.id, selectedDate);
+        const cached = sunStateCache.get(key) as CachedSunState | undefined || getLocalSunCache(key);
         if (cached) cachedEntries.push([t.id, cached]);
         else missing.push(t);
       }
       if (cachedEntries.length) mergeSunStates(cachedEntries);
+      if (missing.length) {
+        const remoteRows = await fetchRemoteSunCache(missing.map((t) => sunCacheKey(t.id, selectedDate)));
+        if (seq !== fullSeqRef.current) return;
+        if (remoteRows.length) {
+          const remoteIds = new Set(remoteRows.map((row) => row.id));
+          remoteRows.forEach(setLocalSunCache);
+          setSunStateCacheEntries(remoteRows.map((row) => [row.key, row]));
+          mergeSunStates(remoteRows.map((row) => [row.id, row]));
+          missing.splice(0, missing.length, ...missing.filter((t) => !remoteIds.has(t.id)));
+        }
+      }
       if (missing.length === 0) return;
       const api = shadowsApi();
       const states = await api.computeSubset(missing, selectedDate.toISOString());
       if (seq !== fullSeqRef.current) return;
       const entries: Array<[number, typeof states[number]]> = [];
-      const cacheEntries: Array<[string, typeof states[number]]> = [];
+      const cacheRows: CachedSunState[] = [];
       missing.forEach((t, i) => {
+        const key = sunCacheKey(t.id, selectedDate);
+        const row = toCachedSunState(t.id, key, states[i]);
         entries.push([t.id, states[i]]);
-        cacheEntries.push([`${t.id}|${keyDate}`, states[i]]);
+        cacheRows.push(row);
+        setLocalSunCache(row);
       });
-      setSunStateCacheEntries(cacheEntries);
+      setSunStateCacheEntries(cacheRows.map((row) => [row.key, row]));
       mergeSunStates(entries);
+      saveRemoteSunCache(cacheRows.slice(0, 20));
     }, 260);
     return () => { if (fullDebRef.current) clearTimeout(fullDebRef.current); };
   }, [selectedDate, terrazas, buildingsLoaded, visibleIds, selectedId, userLocation, sunStateCache, mergeSunStates, setSunStateCacheEntries]);
@@ -227,6 +232,37 @@ export function App() {
   useEffect(() => {
     resetSunStates();
   }, [selectedDate, resetSunStates]);
+
+  useEffect(() => {
+    if (!buildingsLoaded || selectedId == null) return;
+    const terraza = terrazas.find((t) => t.id === selectedId);
+    if (!terraza) return;
+    const seq = ++selectedSeqRef.current;
+    const stateKey = sunCacheKey(terraza.id, selectedDate);
+    const dayKey = `${terraza.id}|${selectedDate.toDateString()}`;
+    const cached = sunStateCache.get(stateKey) || getLocalSunCache(stateKey);
+    setSelectedPending(!cached);
+    if (cached) mergeSunStates([[terraza.id, cached]]);
+    (async () => {
+      try {
+        if (!cached) {
+          const [state] = await shadowsApi().computeSubset([terraza], selectedDate.toISOString());
+          if (seq !== selectedSeqRef.current) return;
+          const row = toCachedSunState(terraza.id, stateKey, state);
+          setLocalSunCache(row);
+          setSunStateCacheEntries([[stateKey, row]]);
+          mergeSunStates([[terraza.id, row]]);
+          saveRemoteSunCache([row]);
+        }
+        const ribbon = await ribbonApi().ribbonFor(terraza, selectedDate.toISOString());
+        if (seq !== selectedSeqRef.current) return;
+        setRibbonCache(dayKey, ribbon);
+        useAppStore.getState().updateSunState(terraza.id, { ribbon });
+      } finally {
+        if (seq === selectedSeqRef.current) setSelectedPending(false);
+      }
+    })();
+  }, [selectedId, buildingsLoaded, terrazas, selectedDate, sunStateCache, mergeSunStates, setSunStateCacheEntries, setRibbonCache, setSelectedPending]);
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-night-700">
@@ -246,15 +282,9 @@ export function App() {
             <TimeWheel />
             {/* Créditos: hecho con amor por David Antizar — debajo de todo */}
             <div className="pointer-events-auto text-center pt-1.5 pb-1 px-2 bg-night-900/70 backdrop-blur-sm">
-              <a
-                href="https://github.com/Ntizar/solmad"
-                target="_blank" rel="noreferrer"
-                className="text-[10px] text-paper/65 hover:text-sun-300 transition tracking-wide font-display"
-              >
+              <span className="text-[10px] text-paper/65 tracking-wide font-display">
                 Hecho con ♥ por <strong className="text-paper/80">David Antizar</strong> · datos OSM + Madrid Abierto
-              </a>
-              <span className="mx-1.5 text-paper/30">·</span>
-              <LegalNotice />
+              </span>
             </div>
           </div>
         </>

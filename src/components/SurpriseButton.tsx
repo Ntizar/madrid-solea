@@ -13,8 +13,6 @@ export function SurpriseButton() {
   const sunStates = useAppStore((s) => s.sunStates);
   const userLocation = useAppStore((s) => s.userLocation);
   const setSelectedId = useAppStore((s) => s.setSelectedId);
-  const setUserLocation = useAppStore((s) => s.setUserLocation);
-  const setGeoStatus = useAppStore((s) => s.setGeoStatus);
 
   async function surprise() {
     // 1) Si tenemos sunStates calculados, busca con sol
@@ -28,22 +26,8 @@ export function SurpriseButton() {
     }
     if (candidates.length === 0) return;
 
-    // Intenta geolocalizar (timeout corto, no bloquea)
-    const me = userLocation ?? await new Promise<{ lat: number; lng: number } | null>((resolve) => {
-      if (!navigator.geolocation) return resolve(null);
-      const timer = setTimeout(() => resolve(null), 2500);
-      navigator.geolocation.getCurrentPosition(
-        (p) => {
-          clearTimeout(timer);
-          const loc = { lat: p.coords.latitude, lng: p.coords.longitude };
-          setUserLocation(loc);
-          setGeoStatus('granted');
-          resolve(loc);
-        },
-        () => { clearTimeout(timer); setGeoStatus('denied'); resolve(null); },
-        { timeout: 3500, maximumAge: 60_000, enableHighAccuracy: true }
-      );
-    });
+    // No pedimos geolocalizacion desde Sorpresa: en iPhone puede bloquear permiso.
+    const me = userLocation;
 
     let pick: { t: Terraza };
     if (me) {
