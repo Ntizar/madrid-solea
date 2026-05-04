@@ -1698,5 +1698,15 @@
     "minutesLeft": 0,
     "directMinutes": 0,
     "updatedAt": "2026-05-04T11:52:24.892Z"
+  },
+  {
+    "id": 1335,
+    "key": "1335|125|990",
+    "sunNow": true,
+    "altitudeDeg": 50.543733848717295,
+    "azimuthDeg": 242.16769516733893,
+    "minutesLeft": 210,
+    "directMinutes": 210,
+    "updatedAt": "2026-05-04T11:53:16.878Z"
   }
 ]
