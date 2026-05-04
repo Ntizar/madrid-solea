@@ -14,6 +14,7 @@ interface State {
   // Mapa id->estado solar (full); y estado rápido por índice (sólo sunNow)
   sunStates: Map<number, SunState>;
   quickSun: Uint8Array | null;
+  ribbonCache: Map<string, number[]>;
   selectedDate: Date;        // hora "ahora mismo" o la elegida en el slider
   isLive: boolean;           // true = sigue al reloj real
   selectedId: number | null;
@@ -35,6 +36,7 @@ interface State {
   setSunStates: (m: Map<number, SunState>) => void;
   updateSunState: (id: number, patch: Partial<SunState>) => void;
   setQuickSun: (u: Uint8Array | null) => void;
+  setRibbonCache: (key: string, ribbon: number[]) => void;
   setUserLocation: (loc: { lat: number; lng: number } | null) => void;
   setGeoStatus: (s: 'idle' | 'asking' | 'granted' | 'denied' | 'unavailable') => void;
 }
@@ -44,6 +46,7 @@ export const useAppStore = create<State>((set) => ({
   buildings: [],
   sunStates: new Map(),
   quickSun: null,
+  ribbonCache: new Map(),
   selectedDate: new Date(),
   isLive: true,
   selectedId: null,
@@ -70,6 +73,11 @@ export const useAppStore = create<State>((set) => ({
     return { sunStates: next };
   }),
   setQuickSun: (u) => set({ quickSun: u }),
+  setRibbonCache: (key, ribbon) => set((s) => {
+    const next = new Map(s.ribbonCache);
+    next.set(key, ribbon);
+    return { ribbonCache: next };
+  }),
   setUserLocation: (loc) => set({ userLocation: loc }),
   setGeoStatus: (s) => set({ geoStatus: s })
 }));

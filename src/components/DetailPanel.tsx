@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useAppStore } from '../store/useAppStore';
 import { SunRhythm } from './SunRhythm';
 import { ribbonApi } from '../workers/shadowsClient';
+import { ContributionForm } from './ContributionForm';
 
 function fmtHM(min: number) {
   if (min <= 0) return '0 min';
@@ -28,6 +29,8 @@ export function DetailPanel() {
   const buildingsLoaded = useAppStore((s) => s.buildingsLoaded);
   const selectedDate = useAppStore((s) => s.selectedDate);
   const updateSunState = useAppStore((s) => s.updateSunState);
+  const ribbonCache = useAppStore((s) => s.ribbonCache);
+  const setRibbonCache = useAppStore((s) => s.setRibbonCache);
   const close = useAppStore((s) => s.setSelectedId);
 
   const t = id != null ? terrazas.find((x) => x.id === id) : null;
@@ -45,6 +48,12 @@ export function DetailPanel() {
   useEffect(() => {
     if (!t || !buildingsLoaded) return;
     const key = `${t.id}|${dayKey}`;
+    const cached = ribbonCache.get(key);
+    if (cached) {
+      setLocalRibbon({ key, ribbon: cached });
+      updateSunState(t.id, { ribbon: cached });
+      return;
+    }
     if (localRibbon?.key === key) return;
     let cancelled = false;
     (async () => {
@@ -52,6 +61,7 @@ export function DetailPanel() {
         const r = await ribbonApi().ribbonFor(t, selectedDate.toISOString());
         if (!cancelled) {
           setLocalRibbon({ key, ribbon: r });
+          setRibbonCache(key, r);
           updateSunState(t.id, { ribbon: r });
         }
       } catch (err) {
@@ -60,7 +70,7 @@ export function DetailPanel() {
       }
     })();
     return () => { cancelled = true; };
-  }, [t, buildingsLoaded, dayKey, selectedDate, updateSunState, localRibbon?.key]);
+  }, [t, buildingsLoaded, dayKey, selectedDate, updateSunState, setRibbonCache, ribbonCache, localRibbon?.key]);
 
   const ribbonToShow = localRibbon?.ribbon ?? sun?.ribbon;
 
@@ -164,11 +174,7 @@ export function DetailPanel() {
               className="mt-5 block text-center bg-sun-300 text-night-900 font-medium rounded-xl py-3.5 hover:bg-sun-100 transition shadow-glow"
             >🚶 Cómo llegar (Google Maps)</a>
 
-            <a
-              href={`https://github.com/Ntizar/solmad/issues/new?title=Precio%20ca%C3%B1a%20%E2%80%94%20${encodeURIComponent(t.name)}&body=${encodeURIComponent(`Terraza: ${t.name}\nDirección: ${t.via} ${t.num}\nPrecio caña (€): ?`)}`}
-              target="_blank" rel="noreferrer"
-              className="mt-2 block text-center bg-white/5 text-paper/80 rounded-xl py-2.5 text-sm hover:bg-white/10 transition border border-white/10"
-            >🍺 ¿Sabes el precio de la caña? Aporta</a>
+            <ContributionForm terraza={t} />
 
             <p className="text-[10px] text-paper/40 mt-3 leading-relaxed">
               Sombras aproximadas con footprints de OpenStreetMap (altura por <em>building:levels</em> o 17 m por defecto).

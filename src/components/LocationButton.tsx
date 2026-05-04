@@ -11,15 +11,16 @@ export function LocationButton() {
   const setGeoStatus = useAppStore((s) => s.setGeoStatus);
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
-  const locate = () => {
+  const locate = (fly = true) => {
     setErrMsg(null);
     if (userLocation) {
-      flyToUser(userLocation.lat, userLocation.lng);
+      if (fly) flyToUser(userLocation.lat, userLocation.lng);
       if (navigator.geolocation && window.isSecureContext) {
         navigator.geolocation.getCurrentPosition(
           (pos) => {
             const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
             setUserLocation(loc);
+            setGeoStatus('granted');
             try { localStorage.setItem(GEO_CACHE_KEY, JSON.stringify({ ...loc, t: Date.now() })); } catch { /* ignore */ }
           },
           () => undefined,
@@ -37,7 +38,7 @@ export function LocationButton() {
       setUserLocation(loc);
       setGeoStatus('granted');
       try { localStorage.setItem(GEO_CACHE_KEY, JSON.stringify({ ...loc, t: Date.now() })); } catch { /* ignore */ }
-      flyToUser(loc.lat, loc.lng);
+      if (fly) flyToUser(loc.lat, loc.lng);
     };
     const onErrorFinal = (err: GeolocationPositionError) => {
       setGeoStatus(err.code === err.PERMISSION_DENIED ? 'denied' : 'unavailable');
@@ -48,7 +49,8 @@ export function LocationButton() {
         : 'Error de ubicación'
       );
     };
-    // 1) Intento rápido (red/wifi); 2) si falla, alta precisión
+    // 1) Intento rápido (red/wifi); 2) si falla, alta precisión.
+    // Debe ocurrir desde un gesto de usuario para que Vercel/Safari/Chrome muestren prompt.
     navigator.geolocation.getCurrentPosition(
       onSuccess,
       () => {
@@ -60,6 +62,8 @@ export function LocationButton() {
     );
   };
 
+  if (userLocation && geoStatus === 'granted') return null;
+
   const label = userLocation
     ? 'Mi ubicación'
     : geoStatus === 'asking'
@@ -68,11 +72,11 @@ export function LocationButton() {
 
   // Cuando ya tenemos ubicación, MeNowBadge actúa como botón principal de centrado.
   // Ocultamos este en móvil para no chocar con la badge centrada.
-  const hideOnMobile = !!userLocation;
+  const hideOnMobile = !!userLocation && geoStatus === 'granted';
 
   return (
     <button
-      onClick={locate}
+      onClick={() => locate()}
       disabled={geoStatus === 'asking'}
       className={`fixed top-16 right-4 z-30 rounded-full bg-paper/92 text-night-900 border border-night-900/10 shadow-xl backdrop-blur px-4 py-2 text-sm font-medium hover:bg-white transition disabled:opacity-70 max-w-[55vw] truncate ${hideOnMobile ? 'hidden sm:inline-flex' : ''}`}
       aria-label="Usar mi ubicación"

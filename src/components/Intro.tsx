@@ -71,9 +71,14 @@ function mulberry32(seed: number) {
   };
 }
 
-export function Intro() {
+export function Intro({ onDone }: { onDone?: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const setIntroDone = useAppStore((s) => s.setIntroDone);
+
+  const finish = () => {
+    onDone?.();
+    setIntroDone(true);
+  };
 
   useEffect(() => {
     if (!ref.current) return;
@@ -272,13 +277,13 @@ export function Intro() {
         >La terraza con sol, ahora mismo.</motion.p>
         <motion.button
           initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 1.5 }}
-          onClick={() => setIntroDone(true)}
+          onClick={finish}
           className="pointer-events-auto mt-7 sm:mt-8 rounded-full bg-sun-300 text-night-900 font-medium px-7 sm:px-9 py-3.5 shadow-glow hover:bg-sun-100 active:scale-95 transition text-sm sm:text-base"
         >Buscar mi caña al sol →</motion.button>
         <p className="text-paper/40 text-[10px] sm:text-xs mt-5 sm:mt-6 px-4">Datos: Ayuntamiento de Madrid · OpenStreetMap · SunCalc</p>
       </div>
       <button
-        onClick={() => setIntroDone(true)}
+        onClick={finish}
         className="absolute top-4 right-4 text-paper/50 hover:text-paper text-xs uppercase tracking-widest pointer-events-auto"
         aria-label="Saltar intro"
       >Saltar →</button>

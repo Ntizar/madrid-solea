@@ -55,6 +55,18 @@ Build de produccion:
 npm run build
 ```
 
+Para que el formulario de aportes guarde precio, marca y nombre en GitHub desde Vercel, define estas variables de entorno en el proyecto:
+
+```text
+SOLMAD_GITHUB_TOKEN=token_con_permiso_contents_write
+GITHUB_OWNER=Ntizar
+GITHUB_REPO=solmad
+GITHUB_BRANCH=main
+CONTRIBUTIONS_PATH=data/contributions.json
+```
+
+`SOLMAD_GITHUB_TOKEN` debe ser un secreto de Vercel, nunca codigo cliente. El endpoint `/api/contribute` lo usa para escribir en `data/contributions.json` mediante la API de GitHub.
+
 El script `prepare:data` se ejecuta antes de `dev` y `build`. Lee el JSON bruto del Ayuntamiento, limpia strings, filtra locales abiertos, reproyecta coordenadas `EPSG:25830 -> WGS84` y genera:
 
 ```text

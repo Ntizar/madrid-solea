@@ -69,6 +69,15 @@ function makeShadowIcon() {
   });
 }
 
+function makePendingIcon() {
+  return L.divIcon({
+    className: 'solmad-pending-marker',
+    html: '<span></span>',
+    iconSize: [14, 14],
+    iconAnchor: [7, 7]
+  });
+}
+
 function makeUserIcon() {
   return L.divIcon({
     className: 'solmad-user-marker',
@@ -84,6 +93,8 @@ export function MapView() {
   const shadowLayerRef = useRef<L.LayerGroup | null>(null);
   const terraceLayerRef = useRef<L.MarkerClusterGroup | null>(null);
   const userLayerRef = useRef<L.LayerGroup | null>(null);
+  const terraceMarkersRef = useRef<Map<number, L.Marker>>(new Map());
+  const markerStatesRef = useRef<Map<number, number>>(new Map());
   const tileFallbackStepRef = useRef(0);
 
   const terrazas = useAppStore((s) => s.terrazas);
@@ -99,6 +110,7 @@ export function MapView() {
 
   const sunIcon = useMemo(() => makeSunIcon(), []);
   const shadowIcon = useMemo(() => makeShadowIcon(), []);
+  const pendingIcon = useMemo(() => makePendingIcon(), []);
   const userIcon = useMemo(() => makeUserIcon(), []);
 
   useEffect(() => {
@@ -188,10 +200,11 @@ export function MapView() {
       iconCreateFunction: (cluster) => {
         const children = cluster.getAllChildMarkers();
         const sunny = children.filter((marker) => (marker.options as any).sunny).length;
+        const pending = children.filter((marker) => (marker.options as any).state === -1).length;
         const count = cluster.getChildCount();
         return L.divIcon({
           className: 'solmad-cluster-marker',
-          html: `<span>${sunny ? '☀' : '·'}</span><strong>${count}</strong>`,
+          html: `<span>${sunny ? '☀' : pending === count ? '…' : '·'}</span><strong>${count}</strong>`,
           iconSize: [38, 38],
           iconAnchor: [19, 19]
         });
@@ -208,6 +221,8 @@ export function MapView() {
       shadowLayerRef.current = null;
       terraceLayerRef.current = null;
       userLayerRef.current = null;
+      terraceMarkersRef.current.clear();
+      markerStatesRef.current.clear();
     };
   }, []);
 
@@ -270,24 +285,43 @@ export function MapView() {
     const layer = terraceLayerRef.current;
     if (!layer) return;
     layer.clearLayers();
+    terraceMarkersRef.current.clear();
+    markerStatesRef.current.clear();
 
-    terrazas.forEach((terraza, index) => {
-      const state = quickSun ? quickSun[index] : -1;
-      const isSunny = state === 1;
+    terrazas.forEach((terraza) => {
       const marker = L.marker([terraza.lat, terraza.lng], {
-        icon: isSunny ? sunIcon : shadowIcon,
+        icon: pendingIcon,
         title: terraza.name,
         riseOnHover: true
       } as L.MarkerOptions & { sunny?: boolean });
-      (marker.options as any).sunny = isSunny;
-      (marker.options as any).state = state;
+      (marker.options as any).sunny = false;
+      (marker.options as any).state = -1;
 
       marker.on('click', () => setSelectedId(terraza.id));
       marker.on('mouseover', () => setHoveredId(terraza.id));
       marker.on('mouseout', () => setHoveredId(null));
       marker.addTo(layer);
+      terraceMarkersRef.current.set(terraza.id, marker);
+      markerStatesRef.current.set(terraza.id, -1);
     });
-  }, [terrazas, quickSun, setSelectedId, setHoveredId, sunIcon, shadowIcon]);
+  }, [terrazas, setSelectedId, setHoveredId, pendingIcon]);
+
+  useEffect(() => {
+    const layer = terraceLayerRef.current;
+    if (!layer || terrazas.length === 0) return;
+
+    terrazas.forEach((terraza, index) => {
+      const marker = terraceMarkersRef.current.get(terraza.id);
+      if (!marker) return;
+      const state = quickSun ? quickSun[index] : -1;
+      if (markerStatesRef.current.get(terraza.id) === state) return;
+      markerStatesRef.current.set(terraza.id, state);
+      (marker.options as any).sunny = state === 1;
+      (marker.options as any).state = state;
+      marker.setIcon(state === 1 ? sunIcon : state === -1 ? pendingIcon : shadowIcon);
+    });
+    layer.refreshClusters();
+  }, [terrazas, quickSun, sunIcon, shadowIcon, pendingIcon]);
 
   useEffect(() => {
     const layer = userLayerRef.current;
